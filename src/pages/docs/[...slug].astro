@@ -1,0 +1,32 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((doc) => ({ params: { slug: doc.id }, props: { doc } }));
+}
+
+const { doc } = Astro.props;
+const { Content } = await render(doc);
+const all = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const here = Astro.url.pathname;
+---
+<Base title={`${doc.data.title} — Docs`} description={doc.data.summary}>
+  <div class="doc-layout">
+    <aside class="docnav">
+      <div class="k">Docs</div>
+      <a href={`${base}docs/`}>Overview</a>
+      {all.map((d) => (
+        <a href={`${base}docs/${d.id}/`} class={here.includes(`/docs/${d.id}`) ? 'active' : ''}>{d.data.title}</a>
+      ))}
+    </aside>
+    <article class="post">
+      <h1>{doc.data.title}</h1>
+      {doc.data.summary && <p class="lead">{doc.data.summary}</p>}
+      <Content />
+    </article>
+  </div>
+</Base>

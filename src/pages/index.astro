@@ -1,0 +1,81 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const posts = (await getCollection('blog'))
+  .filter((p) => !p.data.draft)
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
+  .slice(0, 3);
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+---
+<Base title="Youngmin Cho — efficient LLM inference">
+  <h1>Hi, I'm Youngmin 👋</h1>
+  <p class="lead">
+    Systems engineer working on <strong>efficient LLM inference</strong> — from ultra-low-bit
+    quantization and GPU kernels up to custom NPU hardware.
+  </p>
+  <blockquote>
+    효율적인 LLM 추론을 연구·구현합니다 — 초저비트 양자화부터 GPU 커널, 자체 NPU 하드웨어까지.
+  </blockquote>
+
+  <div class="pills">
+    <span class="pill"><b>One format</b> · OMMX (INT2 + FP4 outlier)</span>
+    <span class="pill"><b>Two backends</b> · GPU kernels + Nucleus NPU</span>
+  </div>
+
+  <h2>What I work on</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Low-bit LLM serving</div>
+      <h3>OMMX quantization</h3>
+      <p>INT2 + FP4 outlier quantization for weights &amp; KV cache, accuracy-preserving
+      formats, and serving integration (vLLM / SGLang).</p>
+    </div>
+    <div class="card">
+      <div class="k">GPU kernels</div>
+      <h3>Quantized attention &amp; GEMM</h3>
+      <p>CUDA / Triton kernels — paged-attention decode, outlier-aware dequant,
+      CUDA-graph capture, vLLM backend.</p>
+    </div>
+    <div class="card">
+      <div class="k">NPU hardware</div>
+      <h3>Nucleus accelerator</h3>
+      <p>A multi-core inference accelerator (RTL + HF→ISA compiler + cycle-accurate model)
+      for the same low-bit format.</p>
+    </div>
+    <div class="card">
+      <div class="k">Edge AI</div>
+      <h3>On-device demos</h3>
+      <p>On-device speech / kiosk systems —
+      <a href="https://github.com/Youngmin17/ai-voice-kiosk-edge-demo">ai-voice-kiosk-edge-demo</a>.</p>
+    </div>
+  </div>
+
+  <h2>Latest notes</h2>
+  {posts.length === 0 ? (
+    <p class="lead">No posts yet — see <a href={`${base}blog/`}>Notes</a>.</p>
+  ) : (
+    <ul class="post-list">
+      {posts.map((p) => (
+        <li>
+          <a class="t" href={`${base}blog/${p.id}/`}>{p.data.title}</a>
+          <div class="meta">{fmt(p.data.date)} · {p.data.author}</div>
+          {p.data.subtitle && <div class="sub">{p.data.subtitle}</div>}
+        </li>
+      ))}
+    </ul>
+  )}
+
+  <h2>Toolbox</h2>
+  <div class="pills">
+    {['PyTorch','CUDA','Triton','vLLM','SGLang','Verilog/SystemVerilog','HuggingFace','lm-eval'].map((t) => (
+      <span class="pill">{t}</span>
+    ))}
+  </div>
+
+  <p style="color:var(--muted); font-size:13.5px; margin-top:26px">
+    Some research repositories are private while in progress.
+  </p>
+</Base>

@@ -1,0 +1,110 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/'); // normalize → "/Youngmin17/"
+const {
+  title = 'Youngmin Cho',
+  description = 'Systems engineer — efficient LLM inference from ultra-low-bit quantization and GPU kernels up to custom NPU hardware.',
+} = Astro.props;
+
+const nav = [
+  { label: 'Work', href: base },
+  { label: 'Notes', href: `${base}blog/` },
+  { label: 'Docs', href: `${base}docs/` },
+];
+const path = Astro.url.pathname;
+const isActive = (href: string) =>
+  href === base ? path === base || path === base.slice(0, -1) : path.startsWith(href);
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content={description} />
+  <title>{title}</title>
+  <link rel="icon" href={`${base}favicon.svg`} />
+  <style is:global>
+    :root{
+      --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d3441;
+      --txt:#e6edf3; --muted:#9aa7b4; --link:#58a6ff;
+      --npu:#a855f7; --gpu:#3b82f6; --accent:#14b8a6;
+      --code:#0b1020; --radius:12px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0; background:var(--bg); color:var(--txt);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Pretendard",Roboto,"Helvetica Neue",Arial,"Noto Sans KR",sans-serif;
+      line-height:1.65; font-size:16px;}
+    a{color:var(--link); text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:880px; margin:0 auto; padding:0 22px}
+    header.site{position:sticky; top:0; z-index:10; backdrop-filter:blur(8px);
+      background:rgba(13,17,23,.82); border-bottom:1px solid var(--border)}
+    header.site .bar{max-width:880px; margin:0 auto; padding:14px 22px; display:flex; align-items:center; gap:18px}
+    header.site .brand{font-weight:700; letter-spacing:-.2px; color:var(--txt)}
+    header.site nav{margin-left:auto; display:flex; gap:6px}
+    header.site nav a{font-size:14.5px; color:var(--muted); padding:6px 12px; border-radius:8px}
+    header.site nav a:hover{background:#11171f; color:var(--txt); text-decoration:none}
+    header.site nav a.active{color:var(--txt); background:#11171f}
+    main{padding:38px 0 70px}
+    h1{font-size:30px; letter-spacing:-.4px; margin:0 0 10px}
+    h2{font-size:22px; margin:34px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+    h3{font-size:17px; margin:22px 0 8px}
+    p{margin:10px 0}
+    ul{margin:10px 0; padding-left:22px} li{margin:5px 0}
+    code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:13.5px;
+      background:var(--code); color:#add6ff; padding:1px 6px; border-radius:5px}
+    pre{background:var(--code); border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow:auto}
+    pre code{background:none; padding:0; color:#c9d1d9}
+    blockquote{border-left:3px solid var(--accent); margin:14px 0; padding:4px 16px; color:var(--muted); background:var(--panel); border-radius:0 8px 8px 0}
+    .lead{color:var(--muted); font-size:17px}
+    .pills{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0}
+    .pill{font-size:12.5px; padding:3px 11px; border-radius:20px; border:1px solid var(--border); background:#0b1020; color:var(--muted)}
+    .pill b{color:var(--txt)}
+    .cards{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:18px 0}
+    @media(max-width:680px){.cards{grid-template-columns:1fr}}
+    .card{border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); padding:16px 18px}
+    .card h3{margin:0 0 6px}
+    .card .k{font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted)}
+    .tag{display:inline-block; font-size:11.5px; padding:1px 8px; border-radius:6px; background:#22303f; color:#bcd; margin:0 4px 4px 0}
+    .post-list{list-style:none; padding:0; margin:18px 0}
+    .post-list li{border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); padding:16px 18px; margin:12px 0}
+    .post-list a.t{font-size:18px; font-weight:600; color:var(--txt)}
+    .post-list .meta{color:var(--muted); font-size:13px; margin:4px 0 6px}
+    .post-list .sub{color:var(--muted)}
+    article.post{max-width:760px}
+    article.post .meta{color:var(--muted); font-size:14px; margin:0 0 18px}
+    .doc-layout{display:grid; grid-template-columns:200px 1fr; gap:26px}
+    @media(max-width:680px){.doc-layout{grid-template-columns:1fr}}
+    aside.docnav{border-right:1px solid var(--border); padding-right:18px}
+    aside.docnav .k{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:0 0 8px}
+    aside.docnav a{display:block; padding:5px 8px; border-radius:7px; color:var(--link); font-size:14px}
+    aside.docnav a.active{background:#11171f; color:var(--txt)}
+    footer.site{border-top:1px solid var(--border); color:var(--muted); font-size:13px; padding:22px 0}
+    footer.site .bar{max-width:880px; margin:0 auto; padding:0 22px; display:flex; gap:16px; flex-wrap:wrap}
+  </style>
+</head>
+<body>
+  <header class="site">
+    <div class="bar">
+      <a class="brand" href={base}>Youngmin&nbsp;Cho</a>
+      <nav>
+        {nav.map((n) => (
+          <a href={n.href} class={isActive(n.href) ? 'active' : ''}>{n.label}</a>
+        ))}
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+      <slot />
+    </div>
+  </main>
+  <footer class="site">
+    <div class="bar">
+      <span>© Youngmin Cho</span>
+      <a href="https://github.com/Youngmin17">GitHub</a>
+      <span>Efficient LLM inference · OMMX · Nucleus NPU</span>
+    </div>
+  </footer>
+</body>
+</html>
