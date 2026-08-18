@@ -1,81 +1,265 @@
 ---
 import Base from '../layouts/Base.astro';
-import { getCollection } from 'astro:content';
 
 const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
-const posts = (await getCollection('blog'))
-  .filter((p) => !p.data.draft)
-  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
-  .slice(0, 3);
-const fmt = (d: Date) =>
-  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+const navSections = [
+  ['About', '#about'],
+  ['Research', '#research'],
+  ['Projects', '#projects'],
+  ['Publications', '#publications'],
+  ['Patents', '#patents'],
+  ['Honors', '#honors'],
+  ['Education', '#education'],
+  ['Experience', '#experience'],
+  ['Media', '#media'],
+  ['Talks', '#talks'],
+];
+
+const researchAreas = [
+  'AI inference optimization through hardware/software co-design',
+  'ML and deep learning compilers',
+  'Next-generation AI inference architectures, including GPU/NPU and memory architecture',
+];
+
 ---
-<Base title="Youngmin Cho — efficient LLM inference">
-  <h1>Hi, I'm Youngmin 👋</h1>
-  <p class="lead">
-    Systems engineer working on <strong>efficient LLM inference</strong> — from ultra-low-bit
-    quantization and GPU kernels up to custom NPU hardware.
-  </p>
-  <blockquote>
-    효율적인 LLM 추론을 연구·구현합니다 — 초저비트 양자화부터 GPU 커널, 자체 NPU 하드웨어까지.
-  </blockquote>
+<Base title="Youngmin Cho — AI Systems & HW/SW Co-Design">
+  <div class="wrap">
+    <section class="profile-hero" id="about">
+      <div>
+        <p class="eyebrow">Youngmin Cho</p>
+        <h1 class="name-title">Youngmin Cho</h1>
+        <p class="profile-role">
+          Undergraduate student in Electrical Engineering at Ajou University, working on AI
+          systems, inference optimization, and accelerator design.
+        </p>
+        <p class="profile-summary">
+          I am interested in AI and systems for AI. I currently study hardware/software
+          co-design for AI inference optimization. My interests are not limited to this
+          field; they also include large-scale serving systems built with heterogeneous
+          processors and storage devices, effective ML architectures with long-term
+          memory, quantum machine learning, and bio AI.
+        </p>
+        <p class="availability">I am currently looking for internship opportunities.</p>
+      </div>
 
-  <div class="pills">
-    <span class="pill"><b>One format</b> · OMMX (INT2 + FP4 outlier)</span>
-    <span class="pill"><b>Two backends</b> · GPU kernels + Nucleus NPU</span>
+      <aside class="profile-card" aria-label="Profile and contact">
+        <img class="profile-photo" src={`${base}profile-photo.jpg`} alt="Youngmin Cho" />
+        <h2>Youngmin Cho</h2>
+        <p class="small">Ajou University · Electrical / Computer Engineering</p>
+        <div class="contact-grid">
+          <a class="contact-chip" href="mailto:galateia2331@gmail.com"><span>Email</span><span>open</span></a>
+          <span class="contact-chip disabled"><span>LinkedIn</span><span>TBD</span></span>
+          <span class="contact-chip disabled"><span>GitHub</span><span>TBD</span></span>
+        </div>
+      </aside>
+    </section>
+
+    <nav class="section-nav" aria-label="Page sections">
+      {navSections.map(([label, href]) => <a href={href}>{label}</a>)}
+    </nav>
+
+    <section class="cv-section" id="research">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Research</p>
+          <h2>Research Focus</h2>
+          <p class="side-note">AI systems, inference serving, and accelerator design.</p>
+        </div>
+        <div class="entry-list">
+          <div class="entry">
+            <h3>Systems for Efficient AI</h3>
+            <ul>
+              {researchAreas.map((area) => <li>{area}</li>)}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="projects">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Projects</p>
+          <h2>Projects</h2>
+          <p class="side-note">Open-source AI systems projects in preparation.</p>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>Nucleus</h3>
+            <p class="where">Samsung 5nm-based open-source NPU project</p>
+            <p>
+              An open-source NPU project including the full software stack for
+              compiler/runtime integration and AI inference acceleration.
+            </p>
+            <p class="status-line">Coming soon.</p>
+          </article>
+          <article class="entry">
+            <h3>OMMX</h3>
+            <p class="where">Outlier Managed MX format and GPU kernels</p>
+            <p>
+              The outlier-managed MX format and GPU kernel stack proposed at ICCAD
+              2026 for efficient low-bit LLM inference.
+            </p>
+            <div class="link-list"><a href="https://github.com/Youngmin17/open_ommx_serve">Code</a></div>
+            <p class="status-line">Public release coming soon.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="publications">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Publications</p>
+          <h2>Selected Papers</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <div class="paper-title">High-Coverage Outlier Representation in Low-Bit MX Formats for Efficient LLM Inference</div>
+            <div class="venue-row">
+              <span class="venue">ICCAD 2026</span>
+              <span class="accept-rate">23.7% acceptance &middot; 341 of 1,436 submissions</span>
+            </div>
+            <p class="authors">
+              <b>Youngmin Cho*</b> (Ajou University), Yoontae Lee (University College London),
+              Rojin Park (KAIST), Sunjae Lee (Sungkyunkwan University), Jonghyeok Park
+              (Seoul National University), Jimin Lee (Carnegie Mellon University), Young H. Oh
+              (Ajou University), and Jeongwoo Park (Sungkyunkwan University).
+            </p>
+            <p class="status-line">Contact: galateia2331@gmail.com</p>
+          </article>
+          <article class="entry muted-card">
+            <div class="paper-title">A G/NPU Microarchitecture for Efficient AI Inference</div>
+            <div class="venue">Targeting ISCA 2027 / TCAS-I</div>
+            <p>Includes an end-to-end inference demo on a Protium emulator.</p>
+            <p class="status-line">In progress.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="patents">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Patents</p>
+          <h2>Patents</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>Reconfigurable Mixed-Precision Processing Device and Method of Operating the Same</h3>
+            <p class="where">Korean Patent Registration No. 10-2024-0197449</p>
+            <p class="authors"><b>Youngmin Cho</b>, Yoontae Lee, and Rojin Park.</p>
+          </article>
+          <article class="entry muted-card">
+            <h3>Patent 2</h3>
+            <p>Coming soon.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="honors">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Honors</p>
+          <h2>Honors and Awards</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry muted-card">
+            <h3>Award 1</h3>
+            <p>Coming soon.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="education">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Education</p>
+          <h2>Education</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>B.S. in Electrical Engineering and Computer Engineering</h3>
+            <p class="where">Ajou University</p>
+            <p class="date">In progress · double major</p>
+          </article>
+          <article class="entry">
+            <h3>Incheon Jinsan Science High School</h3>
+            <p class="where">Science high school</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="experience">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Experience</p>
+          <h2>Experience</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>CEO &amp; Co-Founder</h3>
+            <p class="where">AIPS · AI infrastructure research startup</p>
+            <ul>
+              <li>Selected for the 2023 Preliminary Startup Package.</li>
+              <li>Selected for the <a href="https://www.arm.com/products/flexible-access/startup">Arm Flexible Access for Startup</a> program.</li>
+              <li>Selected for the System Semiconductor Design Support Center MPW program for a UMC 40nm MPW.</li>
+              <li>Exhibited FPGA NPU prototypes at CES 2024 and CES 2026 in Eureka Park.</li>
+              <li>Received ministerial awards in startup pitch competitions from Korean government ministries, achieving KRW 30M in cumulative prize money and KRW 250M in cumulative funding.</li>
+            </ul>
+          </article>
+          <article class="entry">
+            <h3>AI Engineer Intern</h3>
+            <p class="where">NOTA AI</p>
+            <p class="date">Mar 2025 — Jun 2025</p>
+            <ul>
+              <li>Worked on AI optimization.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="media">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Media</p>
+          <h2>Media Coverage</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>AIPS, a startup developing comprehensive NPU solutions</h3>
+            <p class="where">Korea Economic Daily · Dec 27, 2023</p>
+            <div class="link-list"><a href="https://plus.hankyung.com/apps/newsinside.view?aid=202312237219d&category=&sns=y">Article</a></div>
+          </article>
+          <article class="entry">
+            <h3>Air Force Startup Competition Award Ceremony</h3>
+            <p class="where">Yonhap News · Jun 9, 2022</p>
+            <div class="link-list"><a href="https://www.yna.co.kr/view/PYH20220609192000063">Article</a></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cv-section" id="talks">
+      <div class="cv-grid">
+        <div>
+          <p class="eyebrow">Talks</p>
+          <h2>Presentations</h2>
+        </div>
+        <div class="entry-list">
+          <article class="entry">
+            <h3>Nucleus: A Reconfigurable Long-Context LLM Accelerator Using Adaptive Outlier-Aware KV Cache Quantization</h3>
+            <p class="where">DAC WiP 2026</p>
+            <div class="link-list"><a href="https://63dac.conference-program.com/presentation/?id=WIP3279&sess=sess307">Presentation</a></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
   </div>
-
-  <h2>What I work on</h2>
-  <div class="cards">
-    <div class="card">
-      <div class="k">Low-bit LLM serving</div>
-      <h3>OMMX quantization</h3>
-      <p>INT2 + FP4 outlier quantization for weights &amp; KV cache, accuracy-preserving
-      formats, and serving integration (vLLM / SGLang).</p>
-    </div>
-    <div class="card">
-      <div class="k">GPU kernels</div>
-      <h3>Quantized attention &amp; GEMM</h3>
-      <p>CUDA / Triton kernels — paged-attention decode, outlier-aware dequant,
-      CUDA-graph capture, vLLM backend.</p>
-    </div>
-    <div class="card">
-      <div class="k">NPU hardware</div>
-      <h3>Nucleus accelerator</h3>
-      <p>A multi-core inference accelerator (RTL + HF→ISA compiler + cycle-accurate model)
-      for the same low-bit format.</p>
-    </div>
-    <div class="card">
-      <div class="k">Edge AI</div>
-      <h3>On-device demos</h3>
-      <p>On-device speech / kiosk systems —
-      <a href="https://github.com/Youngmin17/ai-voice-kiosk-edge-demo">ai-voice-kiosk-edge-demo</a>.</p>
-    </div>
-  </div>
-
-  <h2>Latest notes</h2>
-  {posts.length === 0 ? (
-    <p class="lead">No posts yet — see <a href={`${base}blog/`}>Notes</a>.</p>
-  ) : (
-    <ul class="post-list">
-      {posts.map((p) => (
-        <li>
-          <a class="t" href={`${base}blog/${p.id}/`}>{p.data.title}</a>
-          <div class="meta">{fmt(p.data.date)} · {p.data.author}</div>
-          {p.data.subtitle && <div class="sub">{p.data.subtitle}</div>}
-        </li>
-      ))}
-    </ul>
-  )}
-
-  <h2>Toolbox</h2>
-  <div class="pills">
-    {['PyTorch','CUDA','Triton','vLLM','SGLang','Verilog/SystemVerilog','HuggingFace','lm-eval'].map((t) => (
-      <span class="pill">{t}</span>
-    ))}
-  </div>
-
-  <p style="color:var(--muted); font-size:13.5px; margin-top:26px">
-    Some research repositories are private while in progress.
-  </p>
 </Base>

@@ -16,6 +16,8 @@ quantization and GPU kernels up to custom NPU hardware.
 - **Edge AI** — on-device speech / kiosk demos.
 
 ### Featured
+- 🧪 [Youngmin Systems Lab](https://youngmin17.github.io/Youngmin17/)
+  — technical blog on efficient LLM inference, OMMX, and Nucleus NPU work.
 - 🎙️ [ai-voice-kiosk-edge-demo](https://github.com/Youngmin17/ai-voice-kiosk-edge-demo)
   — edge AI voice kiosk for resident-center & convenience-store scenarios.
 
