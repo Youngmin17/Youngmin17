@@ -1,0 +1,188 @@
+---
+import Base from '../layouts/Base.astro';
+import Simulator from '../components/sim/Simulator.tsx';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+
+/* Every formula the simulator uses, written out so the numbers can be argued with. */
+const method = [
+  {
+    k: 'Footprint',
+    rows: [
+      ['Weights', 'P × bytes_per_weight, for the whole model — MoE experts included, since capacity is dense even when compute is sparse'],
+      ['SSD offload', 'weights are evicted first, so the evicted share is a fraction of the weight tensor; a shortfall larger than the weights is KV cache that has to be paged in too. One PCIe Gen5 drive per GPU at 14 GB/s'],
+      ['KV cache, MHA and GQA', '2 × kv_heads × head_dim × layers × bytes, per token'],
+      ['KV cache, MLA', '(kv_lora_rank + qk_rope_head_dim) × layers × bytes = 576 × layers, per token'],
+      ['KV cache, DiT', 'none — a diffusion transformer attends over the whole clip in both directions and re-derives K and V at every step'],
+      ['Activations', '6% of weights + 1.5 GB for a language model; 8 × batch × tokens × d_model × 2 B for a video model, where the attention working set dominates'],
+      ['GPU count', 'the smallest power of two whose combined HBM, derated to 90% for allocator overhead and fragmentation, holds the total'],
+    ],
+  },
+  {
+    k: 'One output token',
+    rows: [
+      ['Step time', 'max(memory, compute) + collectives + launch + storage — memory and math overlap, the fabric and the drive do not'],
+      ['Memory', '(weight bytes read ÷ N + KV bytes read) ÷ (HBM bandwidth × 0.8), the derate being what a good decode kernel actually sustains'],
+      ['Memory, MoE', 'the weight term is divided again by an expert-GEMM efficiency that climbs from 0.3 to 1 as tokens-per-expert (batch × topk ÷ experts) fills a 96-row tile — scattered per-expert GEMMs do not stream at full rate'],
+      ['Weight bytes, MoE', 'dense + routed × (1 − (1 − topk/experts)^batch) — an expert is read if any token in the decode batch routes to it'],
+      ['KV bytes under tensor parallelism', 'divided by min(N, kv_heads) for MHA and GQA — head-parallel sharding stops once every rank owns one kv head. MLA has a single latent that TP would have to replicate, which is why DeepSeek runs attention data-parallel instead; sequences split, so it shards across all N'],
+      ['Compute', '(2 × active_params × batch + 4 × layers × batch × context × d_attn) ÷ (N × peak × 0.75)'],
+      ['Collectives', 'two ring all-reduces per layer, each moving 2(N−1)/N × batch × d_model × 2 B, plus a fixed hop latency — 3 µs inside an NVLink domain, 9 µs across InfiniBand'],
+      ['Expert routing', 'a mixture-of-experts layer adds a dispatch and a combine all-to-all, each moving (batch ÷ N) × (1 − 1/N) × topk × d_model × 2 B per rank'],
+      ['Launch', '120 µs for one CUDA-graph replay and the scheduler around it'],
+    ],
+  },
+  {
+    k: 'Time to first token',
+    rows: [
+      ['Prefill FLOPs', '2 × active_params × T + 2 × layers × T² × d_attn — one arriving request, not the whole batch, and halved because attention is causal'],
+      ['Prefill weight traffic, MoE', 'a T-token prompt routes to almost every expert, so the touched fraction uses the prompt length as its exponent, not the decode batch size — prefill reads nearly the whole model where decode reads a slice of it'],
+      ['Prefill time', 'max(compute at 55% MFU, weight and KV traffic) + all-reduce over T tokens'],
+      ['Chunked prefill', 'the same work cut into 512-token pieces, so the worst decode stall is one chunk rather than one whole prompt. Chunks are equal in tokens but not in work — the last one attends over the whole prompt, so the worst stall carries the full attention term'],
+      ['Disaggregated prefill', 'adds one KV cache transfer of the finished sequence — one shard per rank, over NVLink when both pools fit in a node and over InfiniBand when they do not'],
+      ['Static batching', 'an arriving request also waits out the batch already running, charged as 64 decode steps — a stand-in for a mean output length the simulator does not ask you for'],
+      ['Chunked prefill surcharge', 'time to first token is 15% above the raw prefill, the cost of interleaving chunks with a live decode batch'],
+    ],
+  },
+  {
+    k: 'Video diffusion',
+    rows: [
+      ['Sequence length', 'Wan\'s VAE compresses 4× in time and 8× in space, then the DiT patchifies (1,2,2) — a 5-second 480p clip is 32,760 tokens, a 5-second 1080p clip is 171,360'],
+      ['One denoise step', '2 × P × N + 4 × layers × N² × d_attn — the full attention matrix, not half, because a DiT is bidirectional'],
+      ['One clip', 'one step × denoise steps × 2, the doubling being classifier-free guidance'],
+      ['Denoise-step collectives', 'the same two all-reduces per layer, but the payload carries the whole clip — 2(N−1)/N × batch × tokens × d_model × 2 B — which is why splitting a video model across nodes stops paying off almost immediately'],
+    ],
+  },
+  {
+    k: 'Roofline',
+    rows: [
+      ['Arithmetic intensity', 'FLOPs issued ÷ bytes moved, per GPU'],
+      ['Ridge point', 'peak FLOP/s ÷ HBM bandwidth. Lower precision raises the peak but not the bandwidth, so cheaper math pushes the ridge further right'],
+      ['Emulated formats', 'a format with no native tensor-core path keeps the memory saving and runs the math at the BF16 rate, minus 15% for in-kernel dequantization'],
+    ],
+  },
+];
+
+const serving = [
+  ['Static batching', '45%', 'A batch runs to completion, so finished sequences idle until the longest one ends.'],
+  ['Continuous batching (Orca)', '85%', 'Iteration-level scheduling. An arriving prefill still runs alone, so the worst inter-token gap is a whole prompt.'],
+  ['Chunked prefill (Sarathi-Serve)', '90%', 'Prefill rides along with decode in 512-token pieces. The tail stops spiking.'],
+  ['Prefill / decode split', '92%', 'Separate pools, no interference, one KV transfer per request.'],
+];
+---
+<Base
+  title="A roofline you can drag — Youngmin Cho"
+  description="An interactive back-of-the-envelope simulator for LLM and video-diffusion inference: precision, KV cache layout, GPU count, interconnect, and serving discipline."
+>
+  <div class="wrap">
+    <header class="sim-hero">
+      <a class="back" href={base}>← Youngmin Cho</a>
+      <p class="eyebrow">Toy simulator</p>
+      <h1>A roofline you can drag</h1>
+      <p class="sim-lead">
+        Pick a model, a number format, and an accelerator. This works out how many GPUs are needed to
+        hold the thing, how long one token takes, and which piece of hardware you are actually waiting
+        on — weights crossing HBM, tensor cores, the fabric, or a disk. It is a napkin, not a
+        benchmark. But the shape of the answer is right, and the shape is the part worth arguing about.
+      </p>
+    </header>
+
+    <Simulator client:load />
+
+    <section class="method" id="method">
+      <div class="method-head">
+        <p class="eyebrow">Method</p>
+        <h2>How the numbers are made</h2>
+        <p class="method-lead">
+          Nothing here is measured. Every figure below comes from a published spec sheet and a few
+          lines of arithmetic, written out so you can disagree with a specific step rather than with
+          the result.
+        </p>
+      </div>
+
+      {method.map((group) => (
+        <div class="method-group">
+          <h3>{group.k}</h3>
+          <dl>
+            {group.rows.map(([term, def]) => (
+              <div class="method-row">
+                <dt>{term}</dt>
+                <dd>{def}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+
+      <div class="method-group">
+        <h3>Serving discipline</h3>
+        <p class="method-note">
+          Each discipline sets a duty cycle — the fraction of the decode loop doing useful work — and
+          a definition of the worst gap between two tokens. Those are the two numbers these papers
+          are actually about.
+        </p>
+        <table class="method-table">
+          <thead><tr><th>Discipline</th><th>Duty</th><th>What it changes</th></tr></thead>
+          <tbody>
+            {serving.map(([name, duty, note]) => (
+              <tr><td>{name}</td><td class="n">{duty}</td><td>{note}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="method-group">
+        <h3>What it does not model</h3>
+        <p class="method-note">
+          Paged-attention fragmentation, prefix-cache hits, speculative decoding, pipeline and
+          expert parallelism as separate axes — every GPU count here is tensor-parallel — rack-scale
+          routing topology, quantization error, and every scheduler heuristic worth having.
+          Mixture-of-experts at batch 1 is the weakest case and reads optimistic; batched serving,
+          the regime anyone actually deploys, lands within about a factor of two of published
+          measurements.
+        </p>
+      </div>
+    </section>
+
+    <nav class="sim-foot">
+      <a href={base}>← Back to the CV</a>
+      <a href={`${base}#research`}>Research focus</a>
+    </nav>
+  </div>
+
+  <style>
+    .sim-hero{padding:56px 0 26px; max-width:74ch}
+    .back{font-family:var(--mono); font-size:12px; letter-spacing:.06em; color:var(--muted);
+      display:inline-block; margin-bottom:26px}
+    .back:hover{color:var(--accent); text-decoration:none}
+    .sim-hero h1{font-size:clamp(36px,5.4vw,56px); line-height:1.02; letter-spacing:-.045em; margin:0 0 16px}
+    .sim-lead{color:var(--ink-2); font-size:17px; line-height:1.62; margin:0}
+
+    .method{margin:70px 0 0; padding-top:44px; border-top:1px solid var(--line)}
+    .method-head{max-width:70ch; margin-bottom:34px}
+    .method-head h2{margin:0 0 12px; padding-bottom:12px}
+    .method-lead{color:var(--ink-2); font-size:16px; line-height:1.6; margin:0}
+    .method-group{margin:0 0 34px}
+    .method-group h3{font-size:13px; font-family:var(--mono); font-weight:600; letter-spacing:.12em;
+      text-transform:uppercase; color:var(--ink); margin:0 0 14px; padding-bottom:9px;
+      border-bottom:1px solid var(--line)}
+    .method-group dl{margin:0}
+    .method-row{display:grid; grid-template-columns:minmax(0,250px) minmax(0,1fr); gap:12px 26px;
+      padding:11px 0; border-bottom:1px solid var(--line)}
+    .method-row:last-child{border-bottom:0}
+    .method-row dt{font-size:14px; font-weight:650; color:var(--ink); margin:0}
+    .method-row dd{margin:0; font-size:14.5px; color:var(--ink-2); line-height:1.6}
+    @media(max-width:680px){.method-row{grid-template-columns:1fr; gap:4px}}
+    .method-note{font-size:14.5px; color:var(--ink-2); line-height:1.65; max-width:78ch; margin:0 0 16px}
+    .method-table{width:100%; border-collapse:collapse; font-size:14px}
+    .method-table th{text-align:left; font-family:var(--mono); font-size:10px; letter-spacing:.12em;
+      text-transform:uppercase; color:var(--faint); font-weight:500; padding:8px 0; border-bottom:1px solid var(--line)}
+    .method-table td{padding:10px 16px 10px 0; border-bottom:1px solid var(--line); color:var(--ink-2); vertical-align:top}
+    .method-table td:first-child{font-weight:650; color:var(--ink); white-space:nowrap}
+    .method-table td.n{font-family:var(--mono); color:var(--ink)}
+    .method-table tr:last-child td{border-bottom:0}
+
+    .sim-foot{display:flex; gap:20px; flex-wrap:wrap; margin:56px 0 0; padding-top:22px;
+      border-top:1px solid var(--line); font-size:14px; font-weight:600}
+  </style>
+</Base>

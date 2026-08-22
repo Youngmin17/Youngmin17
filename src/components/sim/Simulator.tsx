@@ -4,6 +4,7 @@ import {
   type Precision, type Serving,
 } from './data';
 import { bytes, compact, num, secs, simulate, type Cfg } from './engine';
+import { BYTES } from './data';
 import './sim.css';
 
 /* Accelerator-era counterparts to the 2010 table. Same units, same log scale. */
@@ -196,7 +197,7 @@ export default function Simulator() {
       add('read the weights once', sim.weightBytes / (sim.nGpu * g.bw * 1e12));
     } else {
       add('read this token’s KV cache', sim.kvPerToken / (g.bw * 1e12));
-      add('all-reduce, one layer', sim.tComm / Math.max(1, model.layers * 2));
+      add('all-reduce, one collective', sim.tComm / Math.max(1, model.layers * 2));
       add('one decode step', sim.tpot);
       add('time to first token', sim.ttft);
     }
@@ -220,11 +221,11 @@ export default function Simulator() {
   const notes: { k: string; t: string; body: string }[] = [];
   if (!sim.native) notes.push({
     k: 'cmp', t: `${g.short} has no native ${cfg.precision.toUpperCase()}`,
-    body: `The 4-bit weights still halve what you drag across the bus, so the memory win is real. The math is not: values are dequantized to BF16 in-kernel and run at ${num(g.flops.bf16! / 1e3, 2)} PFLOP/s, so prefill gets no faster.`,
+    body: `The ${cfg.precision === 'fp4' ? '4-bit' : '8-bit'} weights still cut what you drag across the bus by ${2 / BYTES[cfg.precision]}×, so the memory win is real. The math is not: values are dequantized to BF16 in-kernel and run at ${num(sim.peak / 1e15, 2)} PFLOP/s — 15% under the BF16 rate — so prefill gets slower, not faster.`,
   });
   if (model.attn === 'mla') notes.push({
     k: 'mem', t: 'MLA caches a latent, not heads',
-    body: `One 576-element vector per token per layer instead of 2 × kv_heads × head_dim — ${bytes(sim.kvPerToken)} a token, roughly 9× under a GQA model of this depth. It is also replicated on every tensor-parallel rank, which is why DeepSeek runs attention data-parallel instead.`,
+    body: `One ${model.mlaDim}-element vector per token per layer instead of 2 × kv_heads × head_dim — ${bytes(sim.kvPerToken)} a token, ${(2 * 8 * model.headDim / model.mlaDim!).toFixed(1)}× under an 8-kv-head GQA model of this depth and ${(2 * model.heads * model.headDim / model.mlaDim!).toFixed(0)}× under full MHA. Tensor parallelism would have to replicate that latent on every rank, which is why DeepSeek runs attention data-parallel instead — so here it shards across all ${sim.nGpu}.`,
   });
   if (model.attn === 'mha' && sim.kvBytes > sim.weightBytes) notes.push({
     k: 'mem', t: 'The KV cache outweighs the model',
@@ -243,8 +244,8 @@ export default function Simulator() {
     body: `${sim.nGpu} × ${g.short} holds ${bytes(sim.nGpu * g.hbm * 1e9 * 0.9)} of usable HBM and this configuration wants ${bytes(sim.memNeed)}. Give it ${sim.nAuto} GPUs, or turn on SSD offload and watch what happens.`,
   });
   if (cfg.offload && sim.spill > 0) notes.push({
-    k: 'ssd', t: 'Streaming weights off NVMe',
-    body: `${bytes(sim.spill)} does not fit, so it comes off the drive at ${num(LINK.ssdBw / 1e9)} GB/s — ${(g.bw * 1e12 / LINK.ssdBw).toFixed(0)}× slower than HBM, on the critical path of every single token. Offload buys capacity and pays for it in latency.`,
+    k: 'ssd', t: sim.spill > sim.weightBytes ? 'Paging the model off NVMe' : 'Streaming weights off NVMe',
+    body: `${bytes(sim.spill)} does not fit. Weights are evicted first${sim.spill > sim.weightBytes ? `, and the remaining ${bytes(sim.spill - sim.weightBytes)} is KV cache that has to be paged in as well` : ''}, all of it arriving at ${num(LINK.ssdBw / 1e9)} GB/s per GPU — ${(g.bw * 1e12 / LINK.ssdBw).toFixed(0)}× slower than HBM, on the critical path of every single token. Offload buys capacity and pays for it in latency.`,
   });
   if (cfg.precision === 'fp4' && sim.native) notes.push({
     k: 'cmp', t: 'Low precision moves the roof, not the floor',
@@ -275,7 +276,7 @@ export default function Simulator() {
         memWins
           ? { k: 'Tensor cores (hidden under the loads)', v: 0, c: 'var(--cmp)' }
           : { k: 'HBM traffic (hidden under the math)', v: 0, c: 'var(--mem)' },
-        { k: 'All-reduce over the fabric', v: sim.tComm, c: 'var(--net)' },
+        { k: 'All-reduce over the fabric', v: vid.tComm, c: 'var(--net)' },
       ] as { k: string; v: number; c: string; fade?: boolean }[])
     : (memWins
     ? [
@@ -533,13 +534,13 @@ export default function Simulator() {
                 <Row label="Tensor-core work, one step"
                   size={`${compact(sim.video.ach * sim.video.perStep)} FLOP`} time={secs(sim.video.tCompute)} />
                 <Row label={`All-reduce × ${model.layers * 2}`}
-                  size={sim.nGpu > 1 ? bytes(sim.commBytes) : '—'} time={sim.nGpu > 1 ? secs(sim.tComm) : '—'} />
+                  size={sim.nGpu > 1 ? bytes(sim.video.commBytes) : '—'} time={sim.nGpu > 1 ? secs(sim.video.tComm) : '—'} />
                 <Row label={`Whole clip — ${cfg.steps} steps × 2 for CFG`} size="—" time={secs(sim.video.total)} dim />
               </>
             ) : (
               <>
                 <Row label="Weight bytes pulled through HBM" size={bytes((model.dense + model.routed * sim.moeFrac) * sim.bytesPerWeight / sim.nGpu)} time={secs(sim.tWeights)} />
-                <Row label="KV bytes pulled through HBM" size={bytes(sim.kvBytes / (model.attn === 'mla' ? 1 : sim.nGpu))} time={secs(sim.tKv)} />
+                <Row label={`KV bytes pulled through HBM${sim.kvShards > 1 ? ` — sharded ${sim.kvShards} ways` : ''}`} size={bytes(sim.kvBytes / sim.kvShards)} time={secs(sim.tKv)} />
                 <Row label="Tensor-core work" size={`${compact(sim.achDecode * sim.tpot)} FLOP`} time={secs(sim.tCompute)} />
                 <Row label={`All-reduce × ${model.layers * 2}`} size={sim.nGpu > 1 ? bytes(sim.commBytes) : '—'} time={sim.nGpu > 1 ? secs(sim.tComm) : '—'} />
                 {sim.tSsd > 0 && <Row label="Weights streamed off NVMe" size={bytes(sim.spill)} time={secs(sim.tSsd)} />}
@@ -609,9 +610,9 @@ export default function Simulator() {
       <p className="rf-foot">
         Order-of-magnitude only. Dense (non-sparse) tensor-core rates, HBM read at 80% of spec,
         MFU {`${55}`}% for prefill, one CUDA-graph replay per step, ring all-reduce, NDR InfiniBand at
-        50 GB/s per GPU, one PCIe Gen5 NVMe drive at 14 GB/s. It does not model paged-attention
-        fragmentation, prefix-cache hits, speculative decoding, or expert-parallel all-to-all at scale —
-        so treat MoE at batch 1 as optimistic and everything else as ±2×.
+        50 GB/s per GPU, one PCIe Gen5 NVMe drive per GPU at 14 GB/s. It does not model
+        paged-attention fragmentation, prefix-cache hits, speculative decoding, or rack-scale expert
+        parallelism — so treat MoE at batch 1 as optimistic and everything else as ±2×.
       </p>
     </div>
   );
