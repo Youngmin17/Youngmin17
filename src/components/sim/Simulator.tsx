@@ -4,7 +4,6 @@ import {
   type Precision, type Serving,
 } from './data';
 import { bytes, compact, num, secs, simulate, type Cfg } from './engine';
-import { BYTES } from './data';
 import './sim.css';
 
 /* Accelerator-era counterparts to the 2010 table. Same units, same log scale. */
@@ -176,7 +175,16 @@ function Slider({ label, hint, steps, value, onChange, fmt, unit }: {
 export default function Simulator() {
   const [cfg, setCfg] = useState<Cfg>(DEFAULT);
   const still = useReducedMotion();
-  const set = (p: Partial<Cfg>) => setCfg((c) => ({ ...c, ...p }));
+  /* A format with no tensor core on the selected part is not offered. Switching to a part that
+     cannot do the current format falls back to the widest one it can. */
+  const supports = (gpuId: string, p: Precision) => GPUS.find((x) => x.id === gpuId)!.flops[p] != null;
+  const set = (p: Partial<Cfg>) => setCfg((c) => {
+    const next = { ...c, ...p };
+    if (!supports(next.gpuId, next.precision)) {
+      next.precision = (PRECISIONS.find((x) => supports(next.gpuId, x.id))?.id ?? 'bf16') as Precision;
+    }
+    return next;
+  });
 
   const model = MODELS.find((m) => m.id === cfg.modelId)!;
   const isDit = model.kind === 'dit';
@@ -219,10 +227,6 @@ export default function Simulator() {
 
   /* ---- field notes ------------------------------------------------------ */
   const notes: { k: string; t: string; body: string }[] = [];
-  if (!sim.native) notes.push({
-    k: 'cmp', t: `${g.short} has no native ${cfg.precision.toUpperCase()}`,
-    body: `The bus traffic still drops ${2 / BYTES[cfg.precision]}×, so the memory win is real. The math is not — values dequantize to BF16 in-kernel and run at ${num(sim.peak / 1e15, 2)} PFLOP/s, under the BF16 rate. Prefill gets slower, not faster.`,
-  });
   if (model.attn === 'mla') notes.push({
     k: 'mem', t: 'MLA caches a latent, not heads',
     body: `${bytes(sim.kvPerToken)} a token — ${(2 * 8 * model.headDim / model.mlaDim!).toFixed(1)}× under GQA of this depth, ${(2 * model.heads * model.headDim / model.mlaDim!).toFixed(0)}× under MHA. Tensor parallelism would replicate that latent on every rank, which is why attention runs data-parallel here instead.`,
@@ -314,13 +318,17 @@ export default function Simulator() {
         <div className="rf-row two">
           <div className="rf-cell">
             <p className="rf-lab"><span>Number format</span>
-              <em>{sim.native ? 'native tensor-core path' : 'no native path — emulated'}</em></p>
+              <em>{g.short} has {PRECISIONS.filter((p) => g.flops[p.id] != null).length} of the three</em></p>
             <div className="rf-chips">
-              {PRECISIONS.map((p) => (
-                <Chip key={p.id} on={p.id === cfg.precision} label={p.label}
-                  sub={g.flops[p.id] ? p.note : 'emulated'}
-                  onClick={() => set({ precision: p.id as Precision })} />
-              ))}
+              {PRECISIONS.map((p) => {
+                const ok = g.flops[p.id] != null;
+                return (
+                  <Chip key={p.id} on={p.id === cfg.precision}
+                    label={p.id === 'bf16' && g.half ? g.half : p.label}
+                    sub={ok ? p.note : `no ${g.short} tensor core`} disabled={!ok}
+                    onClick={() => set({ precision: p.id as Precision })} />
+                );
+              })}
             </div>
           </div>
           <div className="rf-cell">

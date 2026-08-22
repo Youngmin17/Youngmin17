@@ -18,18 +18,31 @@ export interface Gpu {
   short: string;
   hbm: number; // GB
   bw: number; // TB/s
-  flops: Record<Precision, number | null>; // dense TFLOP/s, null = no native path
+  flops: Record<Precision, number | null>; // dense TFLOP/s, null = the part has no such tensor core
   nvlink: number; // GB/s, bidirectional, per GPU
   perNode: number;
   year: number;
   mem: string;
+  /* Volta's tensor cores are FP16 only — no bfloat16 anywhere in the ISA. Same two bytes per
+     weight and the same rate, so it occupies the 16-bit slot, but it should not be called BF16. */
+  half?: 'FP16';
 }
 
 export const GPUS: Gpu[] = [
   {
+    id: 'v100', name: 'V100 SXM2 32GB', short: 'V100', hbm: 32, bw: 0.9,
+    flops: { bf16: 125, fp8: null, fp4: null }, half: 'FP16',
+    nvlink: 300, perNode: 8, year: 2017, mem: 'HBM2',
+  },
+  {
     id: 'a100', name: 'A100 80GB SXM', short: 'A100', hbm: 80, bw: 2.039,
     flops: { bf16: 312, fp8: null, fp4: null },
     nvlink: 600, perNode: 8, year: 2020, mem: 'HBM2e',
+  },
+  {
+    id: 'h100', name: 'H100 SXM 80GB', short: 'H100', hbm: 80, bw: 3.35,
+    flops: { bf16: 989, fp8: 1979, fp4: null },
+    nvlink: 900, perNode: 8, year: 2022, mem: 'HBM3',
   },
   {
     id: 'h200', name: 'H200 SXM', short: 'H200', hbm: 141, bw: 4.8,

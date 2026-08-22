@@ -125,8 +125,11 @@ const apply = async (c: Cfg) => {
   const steps: string[] = [
     `__qa.press('Model', ${JSON.stringify(m.name)})`,
     `await __qa.frame()`,
-    `__qa.press('Number format', ${JSON.stringify(PRECISIONS.find((p) => p.id === c.precision)!.label)})`,
+    // Accelerator first: a format chip the current part cannot do is disabled, so pressing it
+    // before switching parts is a no-op — which is exactly what a user would hit too.
     `__qa.press('Accelerator', ${JSON.stringify(g.short)})`,
+    `await __qa.frame()`,
+    `__qa.press('Number format', ${JSON.stringify(g.half && c.precision === 'bf16' ? g.half : PRECISIONS.find((p) => p.id === c.precision)!.label)})`,
     `__qa.slide(${JSON.stringify(isDit ? 'Concurrent clips' : 'Batch size')}, ${BATCH_STEPS.indexOf(c.batch)})`,
     isDit
       ? `__qa.press('Output', ${JSON.stringify(VIDEO_SHAPES.find((v) => v.id === c.videoId)!.label)})`
@@ -173,10 +176,13 @@ function expectations(c: Cfg) {
 /* ---- config matrix ---- */
 const base: Cfg = { modelId: 'l70b', precision: 'fp8', gpuId: 'h200', batch: 32, seq: 8192, videoId: '480p5', steps: 50, gpuOverride: null, serving: 'sarathi', offload: false };
 const cfgs: Cfg[] = [];
+const supported = (gpuId: string, p: string) => GPUS.find((g) => g.id === gpuId)!.flops[p as never] != null;
 for (const m of MODELS) {
   const ctx = CTX_STEPS.filter((x) => x <= m.maxCtx);
-  for (const p of PRECISIONS) for (const g of GPUS)
+  for (const p of PRECISIONS) for (const g of GPUS) {
+    if (!supported(g.id, p.id)) continue; // the chip is disabled by design
     cfgs.push({ ...base, modelId: m.id, precision: p.id, gpuId: g.id, seq: ctx[Math.floor(ctx.length / 2)], batch: 8 });
+  }
 }
 for (const b of BATCH_STEPS) cfgs.push({ ...base, batch: b });
 for (const seq of CTX_STEPS) cfgs.push({ ...base, seq });
@@ -184,6 +190,8 @@ for (const sv of SERVING) cfgs.push({ ...base, serving: sv.id });
 for (const ov of [null, 1, 2, 4, 8, 16, 32]) cfgs.push({ ...base, gpuOverride: ov });
 for (const v of VIDEO_SHAPES) for (const st of [20, 30, 50, 100]) cfgs.push({ ...base, modelId: 'wan14b', videoId: v.id, steps: st, batch: 1 });
 cfgs.push({ ...base, modelId: 'l405b', precision: 'bf16', gpuId: 'a100', gpuOverride: 2, offload: true, serving: 'pd' });
+cfgs.push({ ...base, modelId: 'l8b', precision: 'bf16', gpuId: 'v100', gpuOverride: 4, batch: 4, seq: 4096 });
+cfgs.push({ ...base, modelId: 'l70b', precision: 'fp8', gpuId: 'h100', batch: 32, seq: 8192 });
 cfgs.push({ ...base, modelId: 'dsv3', precision: 'fp8', gpuOverride: 32, batch: 64, seq: 32768, serving: 'orca' });
 cfgs.push({ ...base, modelId: 'l13b', precision: 'bf16', seq: 4096, batch: 64, gpuOverride: 8 });
 

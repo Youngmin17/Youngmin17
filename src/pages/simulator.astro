@@ -15,6 +15,9 @@ const assumptions: [string, string][] = [
   ['NVMe offload', '14 GB/s per GPU'],
   ['Chunked prefill', '512-token chunks'],
 ];
+
+/* Only the formats a part actually has tensor cores for can be picked, so there is no emulation
+   path to describe. */
 ---
 <Base
   title="A roofline you can drag — Youngmin Cho"
@@ -26,9 +29,8 @@ const assumptions: [string, string][] = [
       <p class="eyebrow">Toy simulator</p>
       <h1>A roofline you can drag</h1>
       <p class="sim-lead">
-        Pick a model, a number format, and an accelerator. It works out how many GPUs you need, how
-        long a token takes, and which piece of hardware you are actually waiting on. A napkin, not a
-        benchmark — but the shape of the answer is right.
+        A simple toy roofline simulator. I use it to get a rough sense of how much hardware a given
+        inference workload needs.
       </p>
     </header>
 

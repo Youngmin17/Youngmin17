@@ -175,6 +175,9 @@ const REF: { label: string; cfg: Partial<Cfg>; expect: string }[] = [
   { label: 'Llama 405B FP8, 32 seq, 8K', cfg: { modelId: 'l405b', precision: 'fp8', gpuId: 'h200', batch: 32, seq: 8192 }, expect: '~25-35 tok/s per user' },
   { label: 'DeepSeek-V3 FP8, 64 seq, 4K', cfg: { modelId: 'dsv3', precision: 'fp8', gpuId: 'h200', batch: 64, seq: 4096 }, expect: '~15-25 tok/s per user' },
   { label: 'Wan2.1 14B BF16 480p/5s', cfg: { modelId: 'wan14b', precision: 'bf16', gpuId: 'h200', batch: 1, videoId: '480p5' }, expect: '~4-10 min on one H100/H200' },
+  { label: 'Llama 8B FP16, 1 seq, 4K', cfg: { modelId: 'l8b', precision: 'bf16', gpuId: 'v100', batch: 1, seq: 4096 }, expect: 'bound ~45; V100 measures ~25-35' },
+  { label: 'Llama 70B BF16, 1 seq, H100', cfg: { modelId: 'l70b', precision: 'bf16', gpuId: 'h100', batch: 1, seq: 4096 }, expect: 'bound ~75; TP=4 H100 measures ~35-45' },
+  { label: 'Llama 70B FP8, 32 seq, H100', cfg: { modelId: 'l70b', precision: 'fp8', gpuId: 'h100', batch: 32, seq: 8192 }, expect: 'bound ~46; batched H100 measures ~30-40' },
   { label: 'Llama 70B BF16 TTFT 8K', cfg: { modelId: 'l70b', precision: 'bf16', gpuId: 'h200', batch: 1, seq: 8192 }, expect: 'TTFT ~1-2 s' },
 ];
 
