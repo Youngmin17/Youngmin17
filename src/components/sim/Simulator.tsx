@@ -221,43 +221,43 @@ export default function Simulator() {
   const notes: { k: string; t: string; body: string }[] = [];
   if (!sim.native) notes.push({
     k: 'cmp', t: `${g.short} has no native ${cfg.precision.toUpperCase()}`,
-    body: `The ${cfg.precision === 'fp4' ? '4-bit' : '8-bit'} weights still cut what you drag across the bus by ${2 / BYTES[cfg.precision]}×, so the memory win is real. The math is not: values are dequantized to BF16 in-kernel and run at ${num(sim.peak / 1e15, 2)} PFLOP/s — 15% under the BF16 rate — so prefill gets slower, not faster.`,
+    body: `The bus traffic still drops ${2 / BYTES[cfg.precision]}×, so the memory win is real. The math is not — values dequantize to BF16 in-kernel and run at ${num(sim.peak / 1e15, 2)} PFLOP/s, under the BF16 rate. Prefill gets slower, not faster.`,
   });
   if (model.attn === 'mla') notes.push({
     k: 'mem', t: 'MLA caches a latent, not heads',
-    body: `One ${model.mlaDim}-element vector per token per layer instead of 2 × kv_heads × head_dim — ${bytes(sim.kvPerToken)} a token, ${(2 * 8 * model.headDim / model.mlaDim!).toFixed(1)}× under an 8-kv-head GQA model of this depth and ${(2 * model.heads * model.headDim / model.mlaDim!).toFixed(0)}× under full MHA. Tensor parallelism would have to replicate that latent on every rank, which is why DeepSeek runs attention data-parallel instead — so here it shards across all ${sim.nGpu}.`,
+    body: `${bytes(sim.kvPerToken)} a token — ${(2 * 8 * model.headDim / model.mlaDim!).toFixed(1)}× under GQA of this depth, ${(2 * model.heads * model.headDim / model.mlaDim!).toFixed(0)}× under MHA. Tensor parallelism would replicate that latent on every rank, which is why attention runs data-parallel here instead.`,
   });
   if (model.attn === 'mha' && sim.kvBytes > sim.weightBytes) notes.push({
     k: 'mem', t: 'The KV cache outweighs the model',
-    body: `MHA keeps a K and a V for all ${model.heads} heads: ${bytes(sim.kvPerToken)} per token. At batch ${cfg.batch} × ${num(seq)} tokens that is ${bytes(sim.kvBytes)} of cache against ${bytes(sim.weightBytes)} of weights. Grouped-query attention exists for exactly this reason.`,
+    body: `A K and a V for all ${model.heads} heads is ${bytes(sim.kvPerToken)} per token — ${bytes(sim.kvBytes)} of cache against ${bytes(sim.weightBytes)} of weights. Grouped-query attention exists for exactly this reason.`,
   });
   if (model.routed > 0) notes.push({
     k: 'mem', t: `${(sim.moeFrac * 100).toFixed(0)}% of the experts get touched`,
-    body: `Each token picks ${model.topk} of ${model.experts} experts, so a batch of ${cfg.batch} lights up ${(sim.moeFrac * 100).toFixed(0)}% of them and you read ${bytes((model.dense + model.routed * sim.moeFrac) * sim.bytesPerWeight)} per step. All ${bytes(sim.weightBytes)} still has to be resident. Sparse compute, dense capacity.`,
+    body: `A batch of ${cfg.batch} picking ${model.topk} of ${model.experts} lights up ${(sim.moeFrac * 100).toFixed(0)}% of them, so you read ${bytes((model.dense + model.routed * sim.moeFrac) * sim.bytesPerWeight)} per step — but all ${bytes(sim.weightBytes)} stays resident. Sparse compute, dense capacity.`,
   });
   if (sim.crossNode) notes.push({
     k: 'net', t: 'Tensor parallelism left the node',
-    body: `${sim.nGpu} GPUs is ${sim.nodes} nodes, so all-reduce drops from NVLink at ${num(g.nvlink / 2)} GB/s to InfiniBand at ${num(LINK.ibBw / 1e9)} GB/s — ${(g.nvlink / 2 / (LINK.ibBw / 1e9)).toFixed(0)}× slower, ${model.layers * 2} times per token.`,
+    body: `${sim.nGpu} GPUs is ${sim.nodes} nodes, so all-reduce drops from NVLink to InfiniBand — ${(g.nvlink / 2 / (LINK.ibBw / 1e9)).toFixed(0)}× slower, ${model.layers * 2} times per token.`,
   });
   if (!sim.fits && !cfg.offload) notes.push({
     k: 'ssd', t: `${bytes(sim.spill)} short`,
-    body: `${sim.nGpu} × ${g.short} holds ${bytes(sim.nGpu * g.hbm * 1e9 * 0.9)} of usable HBM and this configuration wants ${bytes(sim.memNeed)}. Give it ${sim.nAuto} GPUs, or turn on SSD offload and watch what happens.`,
+    body: `${bytes(sim.memNeed)} wanted against ${bytes(sim.nGpu * g.hbm * 1e9 * 0.9)} of usable HBM. Give it ${sim.nAuto} GPUs, or turn on SSD offload and watch what happens.`,
   });
   if (cfg.offload && sim.spill > 0) notes.push({
     k: 'ssd', t: sim.spill > sim.weightBytes ? 'Paging the model off NVMe' : 'Streaming weights off NVMe',
-    body: `${bytes(sim.spill)} does not fit. Weights are evicted first${sim.spill > sim.weightBytes ? `, and the remaining ${bytes(sim.spill - sim.weightBytes)} is KV cache that has to be paged in as well` : ''}, all of it arriving at ${num(LINK.ssdBw / 1e9)} GB/s per GPU — ${(g.bw * 1e12 / LINK.ssdBw).toFixed(0)}× slower than HBM, on the critical path of every single token. Offload buys capacity and pays for it in latency.`,
+    body: `${bytes(sim.spill)} does not fit. Weights go first${sim.spill > sim.weightBytes ? `, then ${bytes(sim.spill - sim.weightBytes)} of KV cache` : ''} — all of it arriving ${(g.bw * 1e12 / LINK.ssdBw).toFixed(0)}× slower than HBM, on the critical path of every token.`,
   });
   if (cfg.precision === 'fp4' && sim.native) notes.push({
     k: 'cmp', t: 'Low precision moves the roof, not the floor',
-    body: `FP4 quadruples peak FLOP/s but bandwidth is unchanged, so the ridge point slides out to ${Math.round(sim.ridge)} FLOP/byte. Decode sits at ${sim.aiDecode.toFixed(1)}. Cheaper math makes a memory-bound kernel more memory-bound, not less.`,
+    body: `Peak FLOP/s quadruples, bandwidth does not, so the ridge slides out to ${Math.round(sim.ridge)} FLOP/byte while decode sits at ${sim.aiDecode.toFixed(1)}. Cheaper math makes a memory-bound kernel more memory-bound.`,
   });
   if (isDit && sim.video) notes.push({
     k: 'cmp', t: `Compute bound at ${pctOfPeak.toFixed(0)}% of peak`,
-    body: `Attention over ${num(sim.video.tokens)} tokens is quadratic, so a step does ${compact(sim.video.ach * sim.video.perStep)} FLOP against only ${bytes(sim.weightBytes / sim.nGpu)} of weights — ${compact(sim.video.ai)} FLOP per byte, far right of the ${Math.round(sim.ridge)} ridge. Video generation is the rare workload where the tensor cores are the thing you are waiting on, which is why step-distillation and sparse attention are where the wins are.`,
+    body: `Attention over ${num(sim.video.tokens)} tokens is quadratic: ${compact(sim.video.ai)} FLOP per byte, far right of the ${Math.round(sim.ridge)} ridge. The rare workload where the tensor cores are what you wait on — so the wins are in step distillation and sparse attention.`,
   });
   if (notes.length < 2 && !isDit && sim.bound === 'memory') notes.push({
     k: 'mem', t: `Running at ${pctOfPeak < 1 ? pctOfPeak.toFixed(2) : pctOfPeak.toFixed(1)}% of peak`,
-    body: `Decode reads ${bytes(sim.weightBytes)} of weights to produce ${cfg.batch} token${cfg.batch > 1 ? 's' : ''}, which is ${sim.aiDecode.toFixed(1)} FLOP per byte against a ridge point of ${Math.round(sim.ridge)}. The tensor cores are not the problem. Batching is the only lever that moves this point right.`,
+    body: `${bytes(sim.weightBytes)} of weights read to produce ${cfg.batch} token${cfg.batch > 1 ? 's' : ''} — ${sim.aiDecode.toFixed(1)} FLOP per byte against a ridge of ${Math.round(sim.ridge)}. Batching is the only lever that moves this point right.`,
   });
   const shown = notes.slice(0, 4);
 
@@ -462,15 +462,15 @@ export default function Simulator() {
         <div className="rf-panel">
           <h4>Where this configuration sits</h4>
           <p className="cap">
-            The roof is {g.short} at {cfg.precision.toUpperCase()}; the two faint lines are the other
-            accelerators for scale. Anything left of the ridge is waiting on memory no matter how good the kernel is.
+            The roof is {g.short} at {cfg.precision.toUpperCase()}, faint lines the other two. Left of
+            the ridge is waiting on memory, however good the kernel.
           </p>
           <Roofline cfg={{ ...cfg, seq }} sim={sim} />
         </div>
         <div className="rf-panel">
           <h4>{isDit ? 'Where a denoise step goes' : 'Where a token’s time goes'}</h4>
           <p className="cap">{isDit
-            ? `Attention runs over all ${num(sim.video?.tokens ?? 0)} video tokens at once, in both directions, at every layer — so the cost grows with the square of the clip. This is one of the few inference workloads that genuinely saturates the tensor cores.`
+            ? `Every layer attends over all ${num(sim.video?.tokens ?? 0)} tokens at once, in both directions, so cost grows with the square of the clip.`
             : serving.blurb}</p>
           <div className="rf-bar" role="img" aria-label={`Time breakdown, ${boundWord}`}>
             {segs.filter((s) => s.v > 0).map((s) => (
@@ -565,10 +565,9 @@ export default function Simulator() {
         <div className="rf-ladder-h">
           <h4>…and where that lands on the ladder</h4>
           <p>
-            Jeff Dean's latency table, unchanged, on a log scale — with the 2026 accelerator
-            equivalents and your simulated numbers dropped in beside them. Reading 1 MB of memory
-            got 24× faster since 2010. An SSD random read and a datacenter round trip got nothing.
-            That gap is the whole reason a decode step looks the way it does.
+            Jeff Dean's latency table on a log scale, with the 2026 accelerator equivalents and your
+            numbers beside them. Reading 1 MB of memory got 24× faster since 2010; an SSD read and a
+            datacenter round trip got nothing. That gap is why a decode step looks the way it does.
           </p>
           <div className="rf-key">
             <span><i style={{ background: 'var(--line-2)' }} />2010 table</span>
@@ -608,11 +607,9 @@ export default function Simulator() {
       </div>
 
       <p className="rf-foot">
-        Order-of-magnitude only. Dense (non-sparse) tensor-core rates, HBM read at 80% of spec,
-        MFU {`${55}`}% for prefill, one CUDA-graph replay per step, ring all-reduce, NDR InfiniBand at
-        50 GB/s per GPU, one PCIe Gen5 NVMe drive per GPU at 14 GB/s. It does not model
-        paged-attention fragmentation, prefix-cache hits, speculative decoding, or rack-scale expert
-        parallelism — so treat MoE at batch 1 as optimistic and everything else as ±2×.
+        Order-of-magnitude only — dense tensor-core rates and published bandwidths, with the derates
+        listed under Method below. Treat mixture-of-experts at batch 1 as optimistic and everything
+        else as ±2×.
       </p>
     </div>
   );
