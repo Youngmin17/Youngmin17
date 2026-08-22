@@ -1,13 +1,15 @@
 ---
 import Base from '../layouts/Base.astro';
 import { simulate, secs, compact } from '../components/sim/engine';
+import { deadlines } from '../components/cal/types';
+import { VENUES } from '../components/cal/venues';
 
 const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
 
 const navSections = [
   ['About', '#about'],
   ['Research', '#research'],
-  ['Simulator', `${base}simulator`],
+  ['Tools', '#tools'],
   ['Projects', '#projects'],
   ['Publications', '#publications'],
   ['Patents', '#patents'],
@@ -28,6 +30,8 @@ const demoStats: [string, string][] = [
   [`${compact(demo.sysTokPerSec)} tok/s`, 'across the batch'],
   [`${((demo.achDecode / demo.peak) * 100).toFixed(1)}%`, 'of peak FLOP/s'],
 ];
+
+const nDeadlines = deadlines(VENUES).length;
 
 const researchAreas = [
   'AI inference optimization through hardware/software co-design',
@@ -90,12 +94,12 @@ const researchAreas = [
       </div>
     </section>
 
-    <section class="cv-section" id="simulator">
+    <section class="cv-section" id="tools">
       <div class="cv-grid">
         <div>
           <p class="eyebrow">Interactive</p>
-          <h2>Simulator</h2>
-          <p class="side-note">Back-of-the-envelope roofline for LLM and video inference.</p>
+          <h2>Tools</h2>
+          <p class="side-note">Two things I built because I wanted them myself.</p>
         </div>
         <div class="entry-list">
           <a class="sim-card" href={`${base}simulator`}>
@@ -116,6 +120,21 @@ const researchAreas = [
               <div class="stats">
                 {demoStats.map(([v, k]) => <div><b>{v}</b><span>{k}</span></div>)}
               </div>
+            </div>
+          </a>
+
+          <a class="sim-card" href={`${base}calendar`}>
+            <div class="sim-card-body">
+              <h3>Paper deadlines</h3>
+              <p>
+                The next twelve months of submission deadlines across architecture, systems, EDA,
+                machine learning and language, with live countdowns and an .ics export that carries
+                reminders a week and a day out.
+              </p>
+              <p class="sim-card-tags">
+                {VENUES.length} venues · {nDeadlines} deadlines · ISCA · MICRO · HPCA · ASPLOS · OSDI ·
+                SOSP · NeurIPS · ICML · ICLR · MLSys · DAC · ICCAD · ACL · and more
+              </p>
             </div>
           </a>
         </div>

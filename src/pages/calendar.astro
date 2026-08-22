@@ -1,0 +1,41 @@
+---
+import Base from '../layouts/Base.astro';
+import Calendar from '../components/cal/Calendar.tsx';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+---
+<Base
+  title="Paper deadlines — Youngmin Cho"
+  description="A deadline tracker for computer architecture, systems, EDA, machine learning and NLP venues, with an ICS export."
+>
+  <div class="wrap">
+    <header class="cal-hero">
+      <a class="back" href={base}>← Youngmin Cho</a>
+      <p class="eyebrow">Deadline tracker</p>
+      <h1>The next twelve months</h1>
+      <p class="cal-lead">
+        Submission deadlines for the venues I follow — architecture, systems, EDA, machine learning
+        and language. Filter to your field, then take the whole thing as an .ics with reminders a
+        week and a day out.
+      </p>
+    </header>
+
+    <Calendar client:load />
+
+    <nav class="cal-foot">
+      <a href={base}>← Back to the CV</a>
+      <a href={`${base}simulator`}>Roofline simulator</a>
+    </nav>
+  </div>
+
+  <style>
+    .cal-hero{padding:56px 0 30px; max-width:70ch}
+    .back{font-family:var(--mono); font-size:12px; letter-spacing:.06em; color:var(--muted);
+      display:inline-block; margin-bottom:26px}
+    .back:hover{color:var(--accent); text-decoration:none}
+    .cal-hero h1{font-size:clamp(36px,5.4vw,56px); line-height:1.02; letter-spacing:-.045em; margin:0 0 16px}
+    .cal-lead{color:var(--ink-2); font-size:17px; line-height:1.62; margin:0}
+    .cal-foot{display:flex; gap:20px; flex-wrap:wrap; margin:56px 0 0; padding-top:22px;
+      border-top:1px solid var(--line); font-size:14px; font-weight:600}
+  </style>
+</Base>
