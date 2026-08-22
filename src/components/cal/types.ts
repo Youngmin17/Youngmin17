@@ -36,6 +36,30 @@ export const FIELDS: { id: Field; label: string; color: string }[] = [
 
 export const fieldOf = (f: Field) => FIELDS.find((x) => x.id === f)!;
 
+/* Deadlines are quoted at 23:59 Anywhere-on-Earth unless a call says otherwise, and AoE is
+   UTC−12. Resolving each one to a real instant is what lets the page show it in your own zone
+   and count down in hours rather than whole days. */
+export const AOE_OFFSET_MIN = -12 * 60;
+
+export function instantOf(dateISO: string, tz = 'AoE'): number {
+  const offset = /aoe/i.test(tz) || !tz ? AOE_OFFSET_MIN : 0; // anything else is treated as UTC
+  return Date.parse(`${dateISO}T23:59:00Z`) - offset * 60_000;
+}
+
+export type Zone = 'aoe' | 'local' | 'utc';
+
+export function formatIn(ms: number, zone: Zone): string {
+  const d = new Date(zone === 'aoe' ? ms + AOE_OFFSET_MIN * 60_000 : ms);
+  const get = zone === 'local'
+    ? { mo: d.getMonth(), da: d.getDate(), y: d.getFullYear(), h: d.getHours(), mi: d.getMinutes() }
+    : { mo: d.getUTCMonth(), da: d.getUTCDate(), y: d.getUTCFullYear(), h: d.getUTCHours(), mi: d.getUTCMinutes() };
+  const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${MO[get.mo]} ${p(get.da)}, ${get.y} ${p(get.h)}:${p(get.mi)}`;
+}
+
+export const ZONE_LABEL: Record<Zone, string> = { aoe: 'AoE', local: 'Local', utc: 'UTC' };
+
 /* One deadline, flattened out of the venue/round nesting for sorting and display. */
 export interface Deadline {
   venue: Venue;

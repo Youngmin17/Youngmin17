@@ -1,7 +1,7 @@
 /* QA for the deadline tracker: the data, the ICS export, and the rendered page.
    Run: npx tsx scripts/cal-qa.ts [url]   (default http://localhost:4321/Youngmin17/calendar/) */
 import { spawn } from 'node:child_process';
-import { FIELDS, deadlines, toIcs, type Venue } from '../src/components/cal/types';
+import { FIELDS, deadlines, instantOf, toIcs, type Venue } from '../src/components/cal/types';
 import { CHECKED, VENUES } from '../src/components/cal/venues';
 
 const URL = process.argv[2] ?? 'http://localhost:4321/Youngmin17/calendar/';
@@ -91,6 +91,9 @@ const unfolded = ics.replace(/\r\n /g, '');
 for (const d of all) if (!unfolded.includes(d.venue.name)) bad('ics', 'summary-missing-venue', d.venue.name);
 
 /* ---------- 3. rendered page ---------- */
+const rounds = (VENUES as Venue[]).flatMap((v) => v.rounds.map((r) => ({ v, r })));
+rounds.sort((a, b) => instantOf(a.r.paper, a.r.timezone) - instantOf(b.r.paper, b.r.timezone));
+
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${PORT}`,
    `--user-data-dir=${PROFILE}`, 'about:blank'], { stdio: 'ignore' });
@@ -124,71 +127,116 @@ await send('Page.navigate', { url: URL });
 await wait(2600);
 await evalIn(`window.__c = {
   f(){ return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))) },
-  chips(){ return [...document.querySelectorAll('.dl-f')] },
+  btns(){ return [...document.querySelectorAll('.ddl-btn')] },
+  press(text){ const b = this.btns().find(x => x.textContent.trim() === text); if(!b) throw new Error('no button ' + text); b.click(); },
+  card(el){ return {
+    tag: el.querySelector('.ddl-tag') ? el.querySelector('.ddl-tag').textContent.trim() : null,
+    est: !!el.querySelector('.ddl-inferred'),
+    name: el.querySelector('.ddl-conf') ? el.querySelector('.ddl-conf').textContent.trim() : null,
+    year: el.querySelector('.ddl-year') ? el.querySelector('.ddl-year').textContent.trim() : null,
+    cycle: el.querySelector('.ddl-cycle') ? el.querySelector('.ddl-cycle').textContent.trim() : null,
+    full: el.querySelector('.ddl-full') ? el.querySelector('.ddl-full').textContent.trim() : null,
+    sub: el.querySelector('.ddl-primary time') ? el.querySelector('.ddl-primary time').textContent.replace(/\\s+/g,' ').trim() : null,
+    basis: !!el.querySelector('.ddl-basis'),
+    days: el.querySelector('.ddl-num') ? el.querySelector('.ddl-num').textContent.trim() : null,
+    pct: el.querySelector('.ddl-progress span') ? el.querySelector('.ddl-progress span').style.width : null,
+  } },
   scrape(){ return {
-    pins: [...document.querySelectorAll('.dl-pin')].map(p => p.querySelector('b').textContent.trim()),
-    rows: [...document.querySelectorAll('.dl-table tbody tr')].map(r => ({
-      venue: r.querySelector('.v').textContent.replace('est','').trim(),
-      what: r.children[1].textContent.trim(),
-      date: r.children[2].textContent.trim(),
-      cd: r.children[3].textContent.trim() })),
-    months: document.querySelectorAll('.dl-mo').length,
-    next: [...document.querySelectorAll('.dl-up')].map(u => u.querySelector('.who').textContent.trim()),
-    pressed: [...document.querySelectorAll('.dl-f[aria-pressed="true"]')].map(b => b.textContent.trim()),
-    ics: document.querySelector('.dl-ics') ? document.querySelector('.dl-ics').textContent.trim() : null,
+    upcoming: [...document.querySelectorAll('.ddl-upcoming .ddl-card')].map(c => this.card(c)),
+    past: [...document.querySelectorAll('.ddl-past .ddl-card')].map(c => this.card(c)),
+    counts: [...document.querySelectorAll('.ddl-count')].map(c => c.textContent.trim()),
+    pressed: this.btns().filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent.trim()),
+    exportLabel: document.querySelector('.ddl-export') ? document.querySelector('.ddl-export').textContent.trim() : null,
     sw: document.documentElement.scrollWidth, iw: window.innerWidth,
   } }
 }; 'ok'`);
 
 const base = await evalIn(`(async()=>{ await __c.f(); return __c.scrape() })()`);
-if (base.pins.length !== all.length) bad('ui', 'pin-count', `${base.pins.length} pins for ${all.length} deadlines`);
-if (base.rows.length !== all.length) bad('ui', 'row-count', `${base.rows.length} rows for ${all.length} deadlines`);
-if (!base.ics || !base.ics.includes(String(all.length))) bad('ui', 'ics-button-count', String(base.ics));
-const wantNext = all.slice(0, 3).map((d) => `${d.venue.name}${d.round.label ? ` · ${d.round.label}` : ''}`);
-if (JSON.stringify(base.next) !== JSON.stringify(wantNext)) bad('ui', 'next-three', `dom=${JSON.stringify(base.next)} want=${JSON.stringify(wantNext)}`);
+const total = base.upcoming.length + base.past.length;
+if (total !== rounds.length) bad('ui', 'card-count', `${total} cards for ${rounds.length} rounds`);
+if (base.past.length !== 0) bad('ui', 'unexpected-past', `${base.past.length} past cards, data has none before now`);
+if (!base.exportLabel || !base.exportLabel.includes(String(all.length))) bad('ui', 'export-count', String(base.exportLabel));
+if (base.counts[0] !== String(base.upcoming.length)) bad('ui', 'section-count', `${base.counts[0]} vs ${base.upcoming.length}`);
+
+for (const [i, c] of base.upcoming.entries()) {
+  const want = rounds[i];
+  const at = `${want.v.id}#${i}`;
+  if (c.name !== want.v.name) bad(at, 'card-order', `dom=${c.name} want=${want.v.name}`);
+  if (!c.tag) bad(at, 'card-no-tag', '');
+  if (!c.full) bad(at, 'card-no-fullname', '');
+  if (!c.sub) bad(at, 'card-no-submission', '');
+  if (!c.days) bad(at, 'card-no-countdown', '');
+  if (c.est !== (want.v.status === 'projected')) bad(at, 'card-est-badge', `dom=${c.est} status=${want.v.status}`);
+  if (want.v.status === 'projected' && !c.basis) bad(at, 'card-no-basis', '');
+  if ((c.cycle ?? '') !== (want.r.label ?? '')) bad(at, 'card-cycle', `dom=${c.cycle} want=${want.r.label}`);
+  if (!c.year) bad(at, 'card-no-year', '');
+  const pct = parseFloat(c.pct ?? '0');
+  if (!(pct >= 0 && pct <= 100)) bad(at, 'progress-range', String(c.pct));
+}
 for (const junk of ['NaN', 'undefined', 'Invalid Date', '[object']) if (JSON.stringify(base).includes(junk)) bad('ui', 'junk-value', junk);
 if (base.sw > base.iw + 1) bad('ui', 'overflow-x', `${base.sw} > ${base.iw}`);
-const rowDates = base.rows.map((r: any) => r.date);
-for (let i = 1; i < rowDates.length; i++) {
-  const a = Date.parse(rowDates[i - 1].slice(0, 12)), b = Date.parse(rowDates[i].slice(0, 12));
-  if (!Number.isNaN(a) && !Number.isNaN(b) && b < a) bad('ui', 'table-unsorted', `${rowDates[i - 1]} then ${rowDates[i]}`);
-}
 
+/* category filtering */
 for (const f of FIELDS) {
-  const n = all.filter((d) => d.venue.field === f.id).length;
-  const got = await evalIn(`(async()=>{
-    const chips = __c.chips();
-    chips.filter(c => c.getAttribute('aria-pressed') !== 'true').forEach(c => c.click());
-    await __c.f();
-    chips.find(c => c.textContent.trim() === ${JSON.stringify(f.label)}).click();
-    await __c.f();
-    return __c.scrape();
-  })()`);
-  if (got.rows.length !== n) bad(`ui:${f.id}`, 'filter-row-count', `${got.rows.length} rows, expected ${n}`);
-  if (got.pins.length !== n) bad(`ui:${f.id}`, 'filter-pin-count', `${got.pins.length} pins, expected ${n}`);
-  if (got.months !== base.months) bad(`ui:${f.id}`, 'axis-jumped', `${got.months} vs ${base.months}`);
-  if (got.pressed.length !== 1 || got.pressed[0] !== f.label) bad(`ui:${f.id}`, 'filter-state', got.pressed.join('|'));
+  const n = rounds.filter((x) => x.v.field === f.id).length;
+  const got = await evalIn(`(async()=>{ __c.press('All'); await __c.f(); __c.press(${JSON.stringify(f.label)}); await __c.f(); return __c.scrape() })()`);
+  const shownN = got.upcoming.length + got.past.length;
+  if (shownN !== n) bad(`ui:${f.id}`, 'filter-count', `${shownN} cards, expected ${n}`);
+  if (!got.pressed.includes(f.label)) bad(`ui:${f.id}`, 'filter-state', got.pressed.join('|'));
+  if (got.upcoming.some((c: any) => c.tag !== f.label.toUpperCase() && c.tag !== f.label)) bad(`ui:${f.id}`, 'filter-leak', got.upcoming.map((c: any) => c.tag).join('|'));
 }
+const restored = await evalIn(`(async()=>{ __c.press('All'); await __c.f(); return __c.scrape() })()`);
+if (restored.upcoming.length + restored.past.length !== rounds.length) bad('ui', 'filter-reset', String(restored.upcoming.length));
+
+/* the timezone selector must actually move the clock: AoE is UTC-12 */
+const aoe = await evalIn(`(async()=>{ __c.press('AoE'); await __c.f(); return __c.scrape() })()`);
+const utc = await evalIn(`(async()=>{ __c.press('UTC'); await __c.f(); return __c.scrape() })()`);
+const loc = await evalIn(`(async()=>{ __c.press('Local'); await __c.f(); return __c.scrape() })()`);
+if (aoe.upcoming[0].sub === utc.upcoming[0].sub) bad('ui', 'timezone-inert', `aoe=${aoe.upcoming[0].sub} utc=${utc.upcoming[0].sub}`);
+if (!aoe.upcoming[0].sub.includes('AoE')) bad('ui', 'timezone-label', aoe.upcoming[0].sub);
+if (!utc.upcoming[0].sub.includes('UTC')) bad('ui', 'timezone-label', utc.upcoming[0].sub);
+if (!loc.upcoming[0].sub.includes('Local')) bad('ui', 'timezone-label', loc.upcoming[0].sub);
+{
+  // Expectations derived from the raw CFP string and the DEFINITION of AoE (UTC-12), not from the
+  // module under test — comparing against instantOf() would shift with any bug in it and pass.
+  const first = rounds[0];
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const [Y, M, D] = first.r.paper.split('-').map(Number);
+  // a call quoting "D, 23:59 AoE" must render verbatim when the page is showing AoE
+  const wantAoe = `${MO[M - 1]} ${p2(D)}, ${Y} 23:59 AoE`;
+  if (aoe.upcoming[0].sub !== wantAoe) bad('ui', 'aoe-text', `dom="${aoe.upcoming[0].sub}" want="${wantAoe}"`);
+  // and 23:59 AoE is 11:59 UTC the following day, because AoE is twelve hours behind UTC
+  const u = new Date(Date.UTC(Y, M - 1, D, 23 + 12, 59));
+  const wantUtc = `${MO[u.getUTCMonth()]} ${p2(u.getUTCDate())}, ${u.getUTCFullYear()} ${p2(u.getUTCHours())}:${p2(u.getUTCMinutes())} UTC`;
+  if (utc.upcoming[0].sub !== wantUtc) bad('ui', 'utc-text', `dom="${utc.upcoming[0].sub}" want="${wantUtc}"`);
+}
+await evalIn(`(async()=>{ __c.press('AoE'); await __c.f() })()`);
 
 for (const w of [390, 768, 1024, 1440]) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 600 });
   await wait(220);
   const r = await evalIn(`(async()=>{ await __c.f(); const d = __c.scrape();
-    return { over: d.sw - d.iw, off: [...document.querySelectorAll('.dl *')].filter(e => e.getBoundingClientRect().right > window.innerWidth + 1).map(e => e.className).slice(0,5) } })()`);
+    return { over: d.sw - d.iw, off: [...document.querySelectorAll('.ddl *')].filter(e => e.getBoundingClientRect().right > window.innerWidth + 1).map(e => e.className).slice(0,5) } })()`);
   if (r.over > 1) bad(`viewport ${w}`, 'overflow-x', `${r.over}px ${r.off.join('|')}`);
 }
 const a11y = await evalIn(`(() => ({
-  chipsNoAria: [...document.querySelectorAll('.dl-f')].filter(c => !c.hasAttribute('aria-pressed')).length,
-  notButtons: [...document.querySelectorAll('.dl-f, .dl-pin, .dl-ics')].filter(c => c.tagName !== 'BUTTON').length,
-  th: document.querySelectorAll('.dl-table thead th').length,
+  noAria: [...document.querySelectorAll('.ddl-btn')].filter(c => !c.hasAttribute('aria-pressed')).length,
+  notButtons: [...document.querySelectorAll('.ddl-btn, .ddl-export')].filter(c => c.tagName !== 'BUTTON').length,
+  headings: document.querySelectorAll('.ddl-section-title').length,
+  timeNoDatetime: [...document.querySelectorAll('.ddl-card time')].filter(t => !t.getAttribute('datetime')).length,
+  extLinksUnsafe: [...document.querySelectorAll('.ddl-name a')].filter(a => a.target === '_blank' && !a.rel.includes('noopener')).length,
 }))()`);
-if (a11y.chipsNoAria) bad('a11y', 'chip-aria-pressed', String(a11y.chipsNoAria));
+if (a11y.noAria) bad('a11y', 'btn-aria-pressed', String(a11y.noAria));
 if (a11y.notButtons) bad('a11y', 'interactive-not-button', String(a11y.notButtons));
-if (a11y.th < 4) bad('a11y', 'table-headers', String(a11y.th));
+if (!a11y.headings) bad('a11y', 'no-section-heading', '');
+if (a11y.timeNoDatetime) bad('a11y', 'time-without-datetime', String(a11y.timeNoDatetime));
+if (a11y.extLinksUnsafe) bad('a11y', 'link-without-noopener', String(a11y.extLinksUnsafe));
 for (const e of consoleErrors) bad('console', 'console-error', e.slice(0, 200));
 
 /* ---------- report ---------- */
 console.log(`venues        : ${VENUES.length} (confirmed ${VENUES.filter((v) => v.status === 'confirmed').length}, projected ${VENUES.filter((v) => v.status === 'projected').length})`);
+console.log(`rounds / cards: ${rounds.length}`);
 console.log(`deadlines     : ${all.length}`);
 console.log(`ics           : ${lines.length} lines, ${nBegin} events, ${nAlarmB} alarms`);
 console.log(`console errors: ${consoleErrors.length}`);

@@ -1,80 +1,86 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FIELDS, deadlines, fieldOf, toIcs, type Deadline, type Field, type Venue } from './types';
+import {
+  FIELDS, ZONE_LABEL, fieldOf, formatIn, instantOf, toIcs,
+  type Deadline, type Field, type Venue, type Zone,
+} from './types';
 import { CHECKED, VENUES } from './venues';
+
+/* The conference date is the reliable source — some editions are written "FAST '27". */
+const yearOf = (v: Venue) => {
+  if (v.confStart) return String(new Date(`${v.confStart}T00:00:00Z`).getUTCFullYear());
+  const four = v.edition.match(/\b(20\d{2})\b/);
+  if (four) return four[1];
+  const two = v.edition.match(/-(\d{2})\b/);       // AAAI-28
+  return two ? `20${two[1]}` : '';
+};
 import './cal.css';
 
-const DAY = 86_400_000;
-const utc = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const pretty = (iso: string) => {
-  const d = new Date(utc(iso));
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const day = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return `${MO[d.getUTCMonth()]} ${d.getUTCDate()}`;
 };
-const withYear = (iso: string) => `${pretty(iso)} ${new Date(utc(iso)).getUTCFullYear()}`;
+const dayYear = (iso: string) => `${day(iso)}, ${new Date(`${iso}T00:00:00Z`).getUTCFullYear()}`;
+const HOUR = 3_600_000;
+const RUNWAY = 120 * 24 * HOUR; // the window a progress bar fills over
 
-const countdown = (days: number) =>
-  days < 0 ? 'passed'
-    : days === 0 ? 'today'
-    : days === 1 ? 'tomorrow'
-    : days < 21 ? `${days} days`
-    : days < 60 ? `${Math.round(days / 7)} weeks`
-    : `${Math.round(days / 30.4)} months`;
+/* One card per round, not per date: abstract and paper belong to the same submission. */
+interface Card {
+  id: string;
+  venue: Venue;
+  round: Venue['rounds'][number];
+  due: number;          // the instant that matters — the paper deadline
+  abstractAt?: number;
+}
 
-/* Today, in UTC, resolved in the browser so a page built months ago still counts down correctly. */
-function useToday() {
-  const [t, setT] = useState<number | null>(null);
+function cards(venues: Venue[]): Card[] {
+  const out: Card[] = [];
+  for (const v of venues) {
+    for (const [i, r] of v.rounds.entries()) {
+      out.push({
+        id: `${v.id}-${i}`,
+        venue: v,
+        round: r,
+        due: instantOf(r.paper, r.timezone),
+        abstractAt: r.abstract ? instantOf(r.abstract, r.timezone) : undefined,
+      });
+    }
+  }
+  return out.sort((a, b) => a.due - b.due);
+}
+
+/* Ticks every minute so the hours field is honest rather than decorative. */
+function useNow() {
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
-    const set = () => {
-      const n = new Date();
-      setT(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-    };
-    set();
-    const id = setInterval(set, 60 * 60 * 1000);
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
-  return t;
+  return now;
 }
 
 export default function Calendar() {
-  const today = useToday();
-  const [on, setOn] = useState<Set<Field>>(new Set(FIELDS.map((f) => f.id)));
-  const [open, setOpen] = useState<string | null>(null);
+  const now = useNow();
+  const [on, setOn] = useState<Set<Field> | null>(null); // null = every category
+  const [zone, setZone] = useState<Zone>('aoe');
 
-  const all = useMemo(() => deadlines(VENUES as Venue[]), []);
-  const shown = useMemo(() => all.filter((d) => on.has(d.venue.field)), [all, on]);
+  const all = useMemo(() => cards(VENUES as Venue[]), []);
+  const shown = useMemo(() => (on ? all.filter((c) => on.has(c.venue.field)) : all), [all, on]);
 
-  const toggle = (f: Field) => setOn((s) => {
-    const n = new Set(s);
-    if (n.has(f) && n.size === FIELDS.length) return new Set([f]); // first click isolates
-    if (n.has(f)) n.delete(f); else n.add(f);
-    return n.size ? n : new Set(FIELDS.map((x) => x.id));
-  });
-
-  const daysTo = (iso: string) => (today == null ? null : Math.round((utc(iso) - today) / DAY));
-  const upcoming = today == null ? [] : shown.filter((d) => utc(d.date) >= today);
-  const next3 = (upcoming.length ? upcoming : shown).slice(0, 3);
-
-  /* From this month through the last deadline on file, so nothing sits off the edge. Spanned over
-     every venue rather than the filtered set, so the axis does not jump when you filter. */
-  const months = useMemo(() => {
-    if (today == null || !all.length) return [];
-    const base = new Date(today);
-    const last = new Date(utc(all[all.length - 1].date));
-    const span = Math.min(18, Math.max(12,
-      (last.getUTCFullYear() - base.getUTCFullYear()) * 12 + (last.getUTCMonth() - base.getUTCMonth()) + 1));
-    return Array.from({ length: span }, (_, i) => {
-      const y = base.getUTCFullYear();
-      const m = base.getUTCMonth() + i;
-      return { y: y + Math.floor(m / 12), m: ((m % 12) + 12) % 12, i };
-    });
-  }, [today, all]);
+  const upcoming = now == null ? shown : shown.filter((c) => c.due >= now);
+  const past = now == null ? [] : shown.filter((c) => c.due < now);
 
   const download = () => {
+    const list: Deadline[] = [];
+    for (const c of shown) {
+      if (c.round.abstract) list.push({ venue: c.venue, round: c.round, kind: 'abstract', date: c.round.abstract, key: `${c.id}-a` });
+      list.push({ venue: c.venue, round: c.round, kind: 'paper', date: c.round.paper, key: `${c.id}-p` });
+    }
     const n = new Date();
     const p = (x: number) => String(x).padStart(2, '0');
     const stamp = `${n.getUTCFullYear()}${p(n.getUTCMonth() + 1)}${p(n.getUTCDate())}T${p(n.getUTCHours())}${p(n.getUTCMinutes())}${p(n.getUTCSeconds())}Z`;
-    const blob = new Blob([toIcs(shown, stamp)], { type: 'text/calendar;charset=utf-8' });
+    const blob = new Blob([toIcs(list, stamp)], { type: 'text/calendar;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -85,143 +91,154 @@ export default function Calendar() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const detail = open ? shown.find((d) => d.key === open) : null;
+  const nIcs = shown.reduce((t, c) => t + (c.round.abstract ? 2 : 1), 0);
 
   return (
-    <div className="dl">
-      {/* ---- next up ---- */}
-      <div className="dl-next">
-        {next3.map((d) => {
-          const n = daysTo(d.date);
-          const c = fieldOf(d.venue.field).color;
-          return (
-            <div key={d.key} className={`dl-up${n != null && n < 0 ? ' past' : n != null && n <= 21 ? ' soon' : ''}`}
-              style={{ ['--c' as string]: c }}>
-              <div className="days">
-                {n == null ? '—' : n < 0 ? 'past' : n}
-                <small>{n == null ? '' : n < 0 ? '' : n === 1 ? 'day left' : 'days left'}</small>
-              </div>
-              <div className="who">{d.venue.name}{d.round.label && ` · ${d.round.label}`}</div>
-              <div className="what">
-                {d.kind === 'abstract' ? 'abstract' : 'paper'} · {withYear(d.date)}
-                {d.venue.status === 'projected' && ' · estimated'}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ---- filters ---- */}
-      <div className="dl-bar">
-        {FIELDS.map((f) => (
-          <button key={f.id} type="button" className="dl-f" aria-pressed={on.has(f.id)}
-            style={{ ['--c' as string]: f.color }} onClick={() => toggle(f.id)}>
-            <i />{f.label}
-          </button>
-        ))}
-        <button type="button" className="dl-ics" onClick={download}>
-          Download {shown.length} deadlines (.ics)
-        </button>
-      </div>
-
-      {/* ---- the year ---- */}
-      <div className="dl-year">
-        <div className="dl-months" style={{ ['--n' as string]: months.length }}>
-          {months.map(({ y, m, i }) => {
-            const inMonth = shown.filter((d) => {
-              const t = new Date(utc(d.date));
-              return t.getUTCFullYear() === y && t.getUTCMonth() === m;
-            });
-            return (
-              <div key={`${y}-${m}`} className={`dl-mo${i === 0 ? ' now' : ''}`}>
-                <h4>{MONTHS[m]}{m === 0 || i === 0 ? ` ’${String(y).slice(2)}` : ''}</h4>
-                <div className="stack">
-                  {inMonth.map((d) => (
-                    <button key={d.key} type="button"
-                      className={`dl-pin${d.venue.status === 'projected' ? ' est' : ''}${d.kind === 'abstract' ? ' abs' : ''}`}
-                      style={{ ['--c' as string]: fieldOf(d.venue.field).color }}
-                      aria-expanded={open === d.key}
-                      onClick={() => setOpen(open === d.key ? null : d.key)}>
-                      <b>{d.venue.name}</b>
-                      <span>{new Date(utc(d.date)).getUTCDate()}{d.kind === 'abstract' ? ' abs' : ''}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+    <div className="ddl">
+      <div className="ddl-filters">
+        <div className="ddl-group">
+          <span className="ddl-glabel">Category</span>
+          <div className="ddl-btns">
+            <button type="button" className="ddl-btn" aria-pressed={on === null} onClick={() => setOn(null)}>All</button>
+            {FIELDS.map((f) => (
+              <button key={f.id} type="button" className="ddl-btn" aria-pressed={on !== null && on.has(f.id)}
+                style={{ ['--c' as string]: f.color }}
+                onClick={() => setOn((s) => {
+                  if (s === null) return new Set([f.id]);
+                  const n = new Set(s);
+                  if (n.has(f.id)) n.delete(f.id); else n.add(f.id);
+                  return n.size ? n : null;
+                })}>
+                <i />{f.label}
+              </button>
+            ))}
+          </div>
         </div>
-        {detail && <Detail d={detail} />}
+        <div className="ddl-group">
+          <span className="ddl-glabel">Times in</span>
+          <div className="ddl-btns">
+            {(['aoe', 'utc', 'local'] as Zone[]).map((z) => (
+              <button key={z} type="button" className="ddl-btn" aria-pressed={zone === z} onClick={() => setZone(z)}>
+                {ZONE_LABEL[z]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button type="button" className="ddl-export" onClick={download}>Export {nIcs} dates (.ics)</button>
       </div>
 
-      {/* ---- table ---- */}
-      <div className="dl-wrap">
-        <div className="head">
-          <h3>Every deadline, in order</h3>
-          <span>{shown.length} across {new Set(shown.map((d) => d.venue.id)).size} venues</span>
-        </div>
-        <div className="dl-scroll">
-          <table className="dl-table">
-            <thead>
-              <tr><th>Venue</th><th>What</th><th>Date</th><th className="r">Countdown</th><th>Conference</th></tr>
-            </thead>
-            <tbody>
-              {shown.map((d) => {
-                const n = daysTo(d.date);
-                return (
-                  <tr key={d.key} className={n != null && n < 0 ? 'past' : ''}>
-                    <td>
-                      <span className="v" style={{ ['--c' as string]: fieldOf(d.venue.field).color }}>
-                        <i />{d.venue.name}
-                        {d.venue.status === 'projected' && <span className="dl-est">est</span>}
-                      </span>
-                      <span className="sub">{d.venue.edition}</span>
-                    </td>
-                    <td>{d.kind === 'abstract' ? 'Abstract' : 'Full paper'}{d.round.label && <span className="sub">{d.round.label}</span>}</td>
-                    <td className="d">{withYear(d.date)}{d.round.timezone && <span className="sub">{d.round.timezone}</span>}</td>
-                    <td className={`r cd${n != null && n >= 0 && n <= 21 ? ' soon' : ''}`}>{n == null ? '—' : countdown(n)}</td>
-                    <td>
-                      {d.venue.confStart ? withYear(d.venue.confStart) : '—'}
-                      {d.venue.location && <span className="sub">{d.venue.location}</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Section title="Upcoming deadlines" count={upcoming.length} kind="upcoming">
+        {upcoming.map((c) => <Card key={c.id} c={c} now={now} zone={zone} />)}
+      </Section>
 
-      <p className="dl-foot">
-        Checked against official calls for papers on {withYear(CHECKED)}. Dates marked{' '}
-        <span className="dl-est">est</span> had no published call at that point and are projected from
-        the editions named in each entry — confirm one before planning around it. Countdowns run in
-        your browser, so they stay right however old this page is.
+      {past.length > 0 && (
+        <Section title="Passed" count={past.length} kind="past">
+          {past.slice().reverse().map((c) => <Card key={c.id} c={c} now={now} zone={zone} />)}
+        </Section>
+      )}
+
+      <p className="ddl-foot">
+        Checked against official calls for papers on {dayYear(CHECKED)}. Entries marked{' '}
+        <span className="ddl-inferred">estimated</span> had no published call at that point — their
+        dates come from the editions named on the card and should be confirmed before you plan around
+        one. Deadlines are 23:59 in the zone shown; countdowns run in your browser.
       </p>
     </div>
   );
 }
 
-function Detail({ d }: { d: Deadline }) {
-  const v = d.venue;
+function Section({ title, count, kind, children }: {
+  title: string; count: number; kind: string; children: React.ReactNode;
+}) {
   return (
-    <div className="dl-detail">
-      <h4>{v.name} — {v.fullName}</h4>
-      <p className="meta">
-        {v.edition}
-        {v.location && ` · ${v.location}`}
-        {v.confStart && ` · ${withYear(v.confStart)}${v.confEnd ? `–${pretty(v.confEnd)}` : ''}`}
-      </p>
-      <p>
-        {d.round.label && <>{d.round.label}: </>}
-        {d.round.abstract && <>abstract {withYear(d.round.abstract)}, </>}
-        paper {withYear(d.round.paper)}
-        {d.round.timezone && ` ${d.round.timezone}`}
-        {d.round.notification && <>, notification {withYear(d.round.notification)}</>}.
-      </p>
-      {v.status === 'projected' && <p><b>Estimated.</b> {v.basis ?? 'Projected from previous editions.'}</p>}
-      {v.notes && <p>{v.notes}</p>}
-      {v.site && <p><a href={v.site} target="_blank" rel="noopener noreferrer">Official site →</a></p>}
-    </div>
+    <section className={`ddl-section ddl-${kind}`}>
+      <h2 className="ddl-section-title">{title}<span className="ddl-count">{count}</span></h2>
+      <div className="ddl-grid">{children}</div>
+    </section>
+  );
+}
+
+function Card({ c, now, zone }: { c: Card; now: number | null; zone: Zone }) {
+  const f = fieldOf(c.venue.field);
+  const left = now == null ? null : c.due - now;
+  const overdue = left != null && left < 0;
+  const days = left == null ? null : Math.floor(Math.abs(left) / (24 * HOUR));
+  const hrs = left == null ? null : Math.floor((Math.abs(left) % (24 * HOUR)) / HOUR);
+  const urgency = left == null || overdue ? '' : left < 7 * 24 * HOUR ? ' ddl-urgent' : left < 30 * 24 * HOUR ? ' ddl-soon' : '';
+  const pct = left == null ? 0 : Math.max(0, Math.min(100, (1 - left / RUNWAY) * 100));
+
+  return (
+    <article className={`ddl-card${overdue ? ' ddl-past-card' : ''}${urgency}`} style={{ ['--c' as string]: f.color }}>
+      <header className="ddl-card-head">
+        <div className="ddl-badges">
+          <span className="ddl-tag">{f.label}</span>
+          {c.venue.status === 'projected' && <span className="ddl-inferred">estimated</span>}
+        </div>
+        <div className="ddl-countdown">
+          {days == null ? <span className="ddl-num">—</span> : (
+            <>
+              <span className="ddl-num">{days}</span><span className="ddl-unit">{days === 1 ? 'day' : 'days'}</span>
+              <span className="ddl-num">{hrs}</span><span className="ddl-unit">{hrs === 1 ? 'hr' : 'hrs'}</span>
+              {overdue && <span className="ddl-unit ddl-ago">ago</span>}
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="ddl-card-body">
+        <h3 className="ddl-name">
+          {c.venue.site
+            ? <a href={c.venue.site} target="_blank" rel="noopener noreferrer">
+                <span className="ddl-conf">{c.venue.name}</span>
+                {yearOf(c.venue) && <span className="ddl-year">{yearOf(c.venue)}</span>}
+                {c.round.label && <span className="ddl-cycle">{c.round.label}</span>}
+                <span className="ddl-ext" aria-hidden="true">↗</span>
+              </a>
+            : <>
+                <span className="ddl-conf">{c.venue.name}</span>
+                {yearOf(c.venue) && <span className="ddl-year">{yearOf(c.venue)}</span>}
+                {c.round.label && <span className="ddl-cycle">{c.round.label}</span>}
+              </>}
+        </h3>
+        <p className="ddl-full">{c.venue.fullName}</p>
+      </div>
+
+      <footer className="ddl-card-foot">
+        {c.abstractAt != null && (
+          <div className="ddl-row">
+            <span className="ddl-label">Abstract</span>
+            <time dateTime={c.round.abstract}>{formatIn(c.abstractAt, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
+          </div>
+        )}
+        <div className="ddl-row ddl-primary">
+          <span className="ddl-label">Submission</span>
+          <time dateTime={c.round.paper}>{formatIn(c.due, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
+        </div>
+        {c.round.notification && (
+          <div className="ddl-row">
+            <span className="ddl-label">Notification</span>
+            <time dateTime={c.round.notification}>{dayYear(c.round.notification)}</time>
+          </div>
+        )}
+        {c.venue.confStart && (
+          <div className="ddl-row">
+            <span className="ddl-label">Conference</span>
+            <time dateTime={c.venue.confStart}>
+              {c.venue.confEnd ? `${day(c.venue.confStart)} – ${dayYear(c.venue.confEnd)}` : dayYear(c.venue.confStart)}
+            </time>
+          </div>
+        )}
+        {c.venue.location && (
+          <div className="ddl-row">
+            <span className="ddl-label">Where</span>
+            <span className="ddl-where">{c.venue.location}</span>
+          </div>
+        )}
+        {c.venue.status === 'projected' && c.venue.basis && (
+          <p className="ddl-basis"><b>Estimated from</b> {c.venue.basis}</p>
+        )}
+      </footer>
+      <div className="ddl-progress" aria-hidden="true"><span style={{ width: `${pct}%` }} /></div>
+    </article>
   );
 }

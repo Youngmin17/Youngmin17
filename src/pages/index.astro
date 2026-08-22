@@ -1,15 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
-import { simulate, secs, compact } from '../components/sim/engine';
-import { deadlines } from '../components/cal/types';
-import { VENUES } from '../components/cal/venues';
 
 const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
 
 const navSections = [
   ['About', '#about'],
   ['Research', '#research'],
-  ['Tools', '#tools'],
   ['Projects', '#projects'],
   ['Publications', '#publications'],
   ['Patents', '#patents'],
@@ -19,19 +15,6 @@ const navSections = [
   ['Media', '#media'],
   ['Talks', '#talks'],
 ];
-
-/* The teaser reads the same engine the page does, so these can never drift from it. */
-const demo = simulate({
-  modelId: 'l70b', precision: 'fp8', gpuId: 'h200', batch: 32, seq: 8192,
-  videoId: '480p5', steps: 50, gpuOverride: null, serving: 'sarathi', offload: false,
-});
-const demoStats: [string, string][] = [
-  [secs(demo.tpot), 'per output token'],
-  [`${compact(demo.sysTokPerSec)} tok/s`, 'across the batch'],
-  [`${((demo.achDecode / demo.peak) * 100).toFixed(1)}%`, 'of peak FLOP/s'],
-];
-
-const nDeadlines = deadlines(VENUES).length;
 
 const researchAreas = [
   'AI inference optimization through hardware/software co-design',
@@ -90,53 +73,6 @@ const researchAreas = [
               {researchAreas.map((area) => <li>{area}</li>)}
             </ul>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="cv-section" id="tools">
-      <div class="cv-grid">
-        <div>
-          <p class="eyebrow">Interactive</p>
-          <h2>Tools</h2>
-          <p class="side-note">Two things I built because I wanted them myself.</p>
-        </div>
-        <div class="entry-list">
-          <a class="sim-card" href={`${base}simulator`}>
-            <div class="sim-card-body">
-              <h3>A roofline you can drag</h3>
-              <p>
-                Pick a model, a number format, and an accelerator. It works out how many GPUs are
-                needed to hold the thing, how long one token takes, and which piece of hardware you
-                are actually waiting on — then drops the answer onto Jeff Dean's latency table.
-              </p>
-              <p class="sim-card-tags">
-                GQA · MHA · MLA · video DiT · A100 / H200 / B200 · tensor parallelism ·
-                mixture-of-experts · SSD offload · Orca / Sarathi / disaggregated prefill
-              </p>
-            </div>
-            <div class="sim-card-strip">
-              <span class="cfg">Llama 3.3 70B · FP8 · {demo.nGpu} × H200 · batch 32 · 8K context</span>
-              <div class="stats">
-                {demoStats.map(([v, k]) => <div><b>{v}</b><span>{k}</span></div>)}
-              </div>
-            </div>
-          </a>
-
-          <a class="sim-card" href={`${base}calendar`}>
-            <div class="sim-card-body">
-              <h3>Paper deadlines</h3>
-              <p>
-                The next twelve months of submission deadlines across architecture, systems, EDA,
-                machine learning and language, with live countdowns and an .ics export that carries
-                reminders a week and a day out.
-              </p>
-              <p class="sim-card-tags">
-                {VENUES.length} venues · {nDeadlines} deadlines · ISCA · MICRO · HPCA · ASPLOS · OSDI ·
-                SOSP · NeurIPS · ICML · ICLR · MLSys · DAC · ICCAD · ACL · and more
-              </p>
-            </div>
-          </a>
         </div>
       </div>
     </section>
@@ -328,25 +264,5 @@ const researchAreas = [
   </div>
 
   <style>
-    .sim-card{display:block; border:1px solid var(--line); border-radius:14px; background:#fff;
-      box-shadow:var(--shadow-s); overflow:hidden; color:inherit;
-      transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease}
-    .sim-card:hover{border-color:var(--line-2); box-shadow:var(--shadow-m); transform:translateY(-1px);
-      text-decoration:none}
-    .sim-card-body{padding:18px 20px 16px}
-    .sim-card h3{font-size:18px; margin:0 0 8px; display:flex; align-items:center; gap:8px}
-    .sim-card h3::after{content:"→"; color:var(--accent); font-size:15px; transition:transform .15s ease}
-    .sim-card:hover h3::after{transform:translateX(3px)}
-    .sim-card-body p{color:var(--ink-2); margin:8px 0 0; font-size:14.5px}
-    .sim-card-tags{font-family:var(--mono); font-size:11.5px; color:var(--faint);
-      line-height:1.7; margin-top:12px !important}
-    .sim-card-strip{background:var(--ink); color:#fff; padding:14px 20px 16px}
-    .sim-card-strip .cfg{font-family:var(--mono); font-size:10.5px; letter-spacing:.09em;
-      text-transform:uppercase; color:rgba(255,255,255,.5)}
-    .sim-card-strip .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px}
-    .sim-card-strip b{display:block; font-family:var(--mono); font-size:22px; font-weight:600;
-      letter-spacing:-.03em; line-height:1.15}
-    .sim-card-strip span{font-size:12px; color:rgba(255,255,255,.55)}
-    @media(max-width:520px){.sim-card-strip .stats{grid-template-columns:1fr; gap:12px}}
   </style>
 </Base>
