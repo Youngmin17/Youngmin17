@@ -89,10 +89,15 @@ const researchAreas = [
             <h3>Nucleus</h3>
             <p class="where">Samsung 5nm-based open-source NPU project</p>
             <p>
-              An open-source NPU project including the full software stack for
-              compiler/runtime integration and AI inference acceleration.
+              A multi-core NPU that runs attention and FFN on a custom datapath over the
+              OMMX low-bit format &mdash; INT2/INT4 base with FP4/FP8 outliers under a shared
+              power-of-two scale. RTL, the compiler toolchain, and a 90-cell
+              (op &times; precision) verification matrix live in one repository.
             </p>
-            <p class="status-line">Coming soon.</p>
+            <div class="link-list">
+              <a class="locked" href="https://github.com/Youngmin17/open_nucleus">Code<span>private</span></a>
+            </div>
+            <p class="status-line">Public release coming soon.</p>
           </article>
           <article class="entry">
             <h3>OMMX</h3>
@@ -101,7 +106,9 @@ const researchAreas = [
               The outlier-managed MX format and GPU kernel stack proposed at ICCAD
               2026 for efficient low-bit LLM inference.
             </p>
-            <div class="link-list"><a href="https://github.com/Youngmin17/open_ommx_serve">Code</a></div>
+            <div class="link-list">
+              <a class="locked" href="https://github.com/Youngmin17/open_ommx_serve">Code<span>private</span></a>
+            </div>
             <p class="status-line">Public release coming soon.</p>
           </article>
         </div>

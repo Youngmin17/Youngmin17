@@ -164,6 +164,12 @@ const isActive = (href: string) =>
     .link-list{display:flex; flex-wrap:wrap; gap:9px; margin-top:10px}
     .link-list a{font-size:13px; font-weight:600; border:1px solid var(--line-2); border-radius:9px; padding:6px 10px; color:var(--ink-2)}
     .link-list a:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-t); text-decoration:none}
+    .link-list a.locked{color:var(--muted)}
+    .link-list a.locked span{display:inline-block; margin-left:8px; padding:1px 6px; border-radius:5px;
+      border:1px solid var(--line); background:var(--surface); color:var(--faint);
+      font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; font-weight:500}
+    .link-list a.locked:hover{border-color:var(--warm); color:var(--warm); background:var(--warm-t)}
+    .link-list a.locked:hover span{border-color:rgba(194,65,12,.22); color:var(--warm)}
     .muted-card{border:1px dashed var(--line-2); border-radius:14px; padding:18px 20px; color:var(--muted); background:var(--surface)}
 
     /* ---- lmsys-inspired homepage ---- */
