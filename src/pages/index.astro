@@ -87,12 +87,13 @@ const researchAreas = [
         <div class="entry-list">
           <article class="entry">
             <h3>Nucleus</h3>
-            <p class="where">Samsung 5nm-based open-source NPU project</p>
+            <p class="where">Samsung 5nm &middot; full-stack open-source NPU</p>
             <p>
-              A multi-core NPU that runs attention and FFN on a custom datapath over the
-              OMMX low-bit format &mdash; INT2/INT4 base with FP4/FP8 outliers under a shared
-              power-of-two scale. RTL, the compiler toolchain, and a 90-cell
-              (op &times; precision) verification matrix live in one repository.
+              A full-stack open-source NPU &mdash; RTL, compiler toolchain, and runtime in one
+              repository. It executes Hugging Face Transformers models directly, across a range
+              of mixed-precision paths. Physical implementation is complete on a Samsung 5nm
+              PDK, the design has been brought up on a Cadence Protium prototyping system, and
+              a single-core version has been fabricated and verified through a UMC 40nm MPW.
             </p>
             <div class="link-list">
               <a class="locked" href="https://github.com/Youngmin17/open_nucleus">Code<span>private</span></a>
@@ -139,7 +140,7 @@ const researchAreas = [
           <article class="entry muted-card">
             <div class="paper-title">A G/NPU Microarchitecture for Efficient AI Inference</div>
             <div class="venue">Targeting ISCA 2027 / TCAS-I</div>
-            <p>Includes an end-to-end inference demo on a Protium emulator.</p>
+            <p>Includes an end-to-end inference demo on a Protium prototyping system.</p>
             <p class="status-line">In progress.</p>
           </article>
         </div>
