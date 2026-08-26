@@ -3,16 +3,16 @@ import {
   BATCH_STEPS, CLASSIC, CTX_STEPS, GPUS, LINK, MODELS, PRECISIONS, SERVING, VIDEO_SHAPES,
   type Precision, type Serving,
 } from './data';
-import { bytes, compact, num, secs, simulate, type Cfg } from './engine';
+import { EMULATION_TAX, bytes, compact, num, secs, simulate, type Cfg } from './engine';
 import './sim.css';
 
-/* Accelerator-era counterparts to the 2010 table. Same units, same log scale. */
+/* Accelerator-era counterparts to the classic table. Same units, same log scale. */
 const MODERN: { label: string; ns: number }[] = [
   { label: 'GPU shared-memory reference', ns: 20 },
   { label: 'Read 1 MB from HBM3e at 8 TB/s', ns: 125 },
   { label: 'HBM3e reference', ns: 400 },
   { label: 'NVLink 5 hop, 1 MB', ns: 2_600 },
-  { label: 'NVMe Gen5 random read', ns: 16_000 },
+  { label: 'NVMe Gen5 random read', ns: 70_000 },
   { label: 'InfiniBand NDR hop, 1 MB', ns: 22_000 },
 ];
 
@@ -81,7 +81,7 @@ const decade = (e: number) => (e < 0 ? `0.${'0'.repeat(-e - 1)}1` : e === 0 ? '1
 function Roofline({ cfg, sim }: { cfg: Cfg; sim: ReturnType<typeof simulate> }) {
   const roofs = GPUS.map((g) => {
     const nat = g.flops[cfg.precision] != null;
-    const peakT = (g.flops[cfg.precision] ?? g.flops.bf16!) * (nat ? 1 : 0.85);
+    const peakT = (g.flops[cfg.precision] ?? g.flops.bf16!) * (nat ? 1 : EMULATION_TAX);
     const ridge = peakT / g.bw;
     return { g, peakT, ridge, on: g.id === cfg.gpuId };
   });
@@ -124,7 +124,7 @@ function Roofline({ cfg, sim }: { cfg: Cfg; sim: ReturnType<typeof simulate> }) 
             ridge {Math.round(r.ridge)}
           </text>
           <text x={px(r.ridge) + 6} y={py(r.peakT) - 7} fill="var(--ink)" fontSize="10" fontWeight="600">
-            {r.g.short} {cfg.precision.toUpperCase()} peak
+            {r.g.short} {cfg.precision === 'bf16' && r.g.half ? r.g.half : cfg.precision.toUpperCase()} peak
           </text>
         </g>
       ))}
@@ -194,6 +194,9 @@ export default function Simulator() {
 
   const g = sim.gpu;
   const pctOfPeak = ((sim.video ? sim.video.ach : sim.achDecode) / sim.peak) * 100;
+  /* Volta's 16-bit slot is FP16, not BF16. The format chip already says so; everything that names
+     the format alongside this part has to say the same thing. */
+  const fmtLabel = cfg.precision === 'bf16' && g.half ? g.half : cfg.precision.toUpperCase();
 
   /* ---- ladder ---------------------------------------------------------- */
   const live = useMemo(() => {
@@ -224,6 +227,18 @@ export default function Simulator() {
 
   const tpotNs = sim.tpot * 1e9;
   const dcTrips = tpotNs / 500_000;
+
+  /* Read off the two tables rather than asserted in prose, so the sentence cannot drift away from
+     the rows underneath it. */
+  const gain = (classic: string, modern: string) => {
+    const a = CLASSIC.find((r) => r.label === classic)?.ns;
+    const b = MODERN.find((r) => r.label === modern)?.ns;
+    return a && b ? a / b : 0;
+  };
+  const memGain = gain('Read 1 MB sequentially from memory', 'Read 1 MB from HBM3e at 8 TB/s');
+  const ssdGain = gain('Read 4K randomly from SSD', 'NVMe Gen5 random read');
+  // An L1 reference is half a nanosecond in that table, not one, so the count has to divide.
+  const l1Ns = CLASSIC.find((r) => r.label === 'L1 cache reference')?.ns ?? 1;
 
   /* ---- field notes ------------------------------------------------------ */
   const notes: { k: string; t: string; body: string }[] = [];
@@ -470,8 +485,10 @@ export default function Simulator() {
         <div className="rf-panel">
           <h4>Where this configuration sits</h4>
           <p className="cap">
-            The roof is {g.short} at {cfg.precision.toUpperCase()}, faint lines the other two. Left of
-            the ridge is waiting on memory, however good the kernel.
+            The roof is {g.short} at {fmtLabel}, dashed lines the other{' '}
+            {GPUS.length - 1} &mdash; taxed {Math.round((1 - EMULATION_TAX) * 100)}% where a part has
+            no tensor core for this format. Left of the ridge is waiting on memory, however good the
+            kernel.
           </p>
           <Roofline cfg={{ ...cfg, seq }} sim={sim} />
         </div>
@@ -518,7 +535,7 @@ export default function Simulator() {
       <div className="rf-sheet">
         <div className="rf-sheet-h">
           <h4>The napkin</h4>
-          <span>{model.name} · {cfg.precision.toUpperCase()} · {sim.nGpu} × {g.short}</span>
+          <span>{model.name} · {fmtLabel} · {sim.nGpu} × {g.short}</span>
         </div>
         <table className="rf-tbl">
           <thead>
@@ -557,7 +574,7 @@ export default function Simulator() {
             )}
 
             <tr className="grp"><td colSpan={3}>Roofline</td></tr>
-            <Row label={`Peak, ${sim.nGpu} × ${g.short} at ${cfg.precision.toUpperCase()}`}
+            <Row label={`Peak, ${sim.nGpu} × ${g.short} at ${fmtLabel}`}
               size={`${(sim.aggFlops / 1e15).toFixed(2)} PFLOP/s`} time={sim.native ? 'native' : 'emulated'} dim />
             <Row label="Aggregate HBM bandwidth" size={`${(sim.aggBw / 1e12).toFixed(1)} TB/s`} />
             <Row label="Ridge point — where the roof bends" size={`${Math.round(sim.ridge)} FLOP/byte`} />
@@ -573,12 +590,15 @@ export default function Simulator() {
         <div className="rf-ladder-h">
           <h4>…and where that lands on the ladder</h4>
           <p>
-            Jeff Dean's latency table on a log scale, with the 2026 accelerator equivalents and your
-            numbers beside them. Reading 1 MB of memory got 24× faster since 2010; an SSD read and a
-            datacenter round trip got nothing. That gap is why a decode step looks the way it does.
+            The latency table every programmer knows, at its ~2012 values, on a log scale — with the
+            2026 accelerator equivalents and your numbers beside them. Reading a megabyte of memory
+            got {num(memGain)}× faster in the years since, and a random SSD read got{' '}
+            {ssdGain.toFixed(0)}×. The packet row got nothing: CA&rarr;Netherlands&rarr;CA is
+            17,600 km of fibre, so 86 of those 150 ms are the speed of light and no hardware will
+            move them. That spread is why a decode step looks the way it does.
           </p>
           <div className="rf-key">
-            <span><i style={{ background: 'var(--line-2)' }} />2010 table</span>
+            <span><i style={{ background: 'var(--line-2)' }} />~2012 table</span>
             <span><i style={{ background: 'var(--net)' }} />2026 accelerator</span>
             <span><i style={{ background: 'var(--mem)' }} />this configuration</span>
           </div>
@@ -604,7 +624,7 @@ export default function Simulator() {
             something to do.</>
           ) : (
             <>One decode step is <span className="mono">{secs(sim.tpot)}</span> — about{' '}
-              <b>{compact(tpotNs)}</b> L1 cache references, or{' '}
+              <b>{compact(tpotNs / l1Ns)}</b> L1 cache references, or{' '}
               <b>{dcTrips >= 1 ? `${num(dcTrips, dcTrips < 10 ? 1 : 0)} round trips` : `${(dcTrips * 100).toFixed(0)}%`} across a datacenter</b>
               {sim.bound === 'memory' && <>, spent almost entirely waiting for {bytes((model.dense + model.routed * sim.moeFrac) * sim.bytesPerWeight)} of weights to come back from HBM</>}
               {sim.bound === 'interconnect' && <>, most of it in {model.layers * 2} all-reduces rather than in arithmetic</>}

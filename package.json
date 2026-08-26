@@ -9,8 +9,9 @@
     "preview": "astro preview",
     "qa:engine": "tsx scripts/sim-sweep.ts",
     "qa:ui": "tsx scripts/sim-ui-qa.ts",
-    "qa": "npm run qa:engine && npm run qa:ui && npm run qa:cal",
-    "qa:cal": "tsx scripts/cal-qa.ts"
+    "qa": "npm run qa:verify && npm run qa:engine && npm run qa:ui && npm run qa:cal",
+    "qa:cal": "tsx scripts/cal-qa.ts",
+    "qa:verify": "tsx scripts/sim-verify.ts"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.2.0",

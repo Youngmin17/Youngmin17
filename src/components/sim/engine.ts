@@ -22,7 +22,7 @@ const MFU_PREFILL = 0.55;
 const MFU_DECODE = 0.75;
 const BW_EFF = 0.8;    // a good decode kernel reads HBM at ~80% of the spec sheet
 const MOE_FLOOR = 0.3; // scattered per-expert GEMMs at tiny batch, before they fill up
-const EMULATION_TAX = 0.85; // dequantize-in-kernel when the format has no native path
+export const EMULATION_TAX = 0.85; // dequantize-in-kernel when the format has no native path
 const HBM_USABLE = 0.9;
 const LAUNCH = 1.2e-4; // one CUDA-graph replay plus scheduler, per step
 const CHUNK = 512;
@@ -72,9 +72,12 @@ export function simulate(cfg: Cfg): Sim {
     ? 0
     : (model.attn === 'mla' ? model.mlaDim! : 2 * model.kvHeads * model.headDim) * model.layers * bpw;
   const kvBytes = batch * seq * kvPerToken;
+  // Activations, workspace and fragmentation are bf16 whatever the weights are stored as, and the
+  // CUDA context is a fixed cost, so this term is priced off the bf16 model and does not shrink
+  // when the weights do. Quantizing to FP4 buys you weight bytes, not scratch space.
   const actBytes = isDit
     ? batch * seq * model.d * 2 * 8
-    : 0.06 * weightBytes + 1.5e9;
+    : 0.06 * (model.params * 2) + 1.5e9;
   const memNeed = weightBytes + kvBytes + actBytes;
 
   const usable = gpu.hbm * 1e9 * HBM_USABLE;
@@ -232,7 +235,7 @@ export const bytes = (b: number): string => {
 
 export const secs = (s: number): string => {
   if (!isFinite(s) || s <= 0) return '—';
-  if (s < 1e-6) return `${(s * 1e9).toFixed(0)} ns`;
+  if (s < 1e-6) return `${(s * 1e9).toFixed(s * 1e9 < 1 ? 1 : 0)} ns`; // 0.5 ns must not read as 1 ns
   if (s < 1e-3) return `${(s * 1e6).toFixed(s * 1e6 < 10 ? 1 : 0)} µs`;
   if (s < 1) return `${(s * 1e3).toFixed(s * 1e3 < 10 ? 2 : 1)} ms`;
   if (s < 90) return `${s.toFixed(s < 10 ? 2 : 1)} s`;

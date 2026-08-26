@@ -14,10 +14,18 @@ const assumptions: [string, string][] = [
   ['InfiniBand hop', '9 µs, 50 GB/s per GPU'],
   ['NVMe offload', '14 GB/s per GPU'],
   ['Chunked prefill', '512-token chunks'],
+  ['MoE tile fill', 'floor 30%, full at 96 tokens per expert'],
+  ['Duty cycle', '45% static, 85% continuous, 90% chunked, 92% split'],
+  ['Chunked-prefill TTFT', '+15% for the chunking itself'],
+  ['Static-batching queue', 'one batch of 64 steps ahead of you'],
+  ['Activations + workspace', '6% of the BF16 weights, plus 1.5 GB fixed'],
+  ['Video activations', 'eight residual-sized tensors per layer'],
+  ['Emulated format', "85% of the part's 16-bit rate"],
 ];
 
-/* Only the formats a part actually has tensor cores for can be picked, so there is no emulation
-   path to describe. */
+/* The picker only offers formats the selected part has tensor cores for, but the roofline still
+   draws the other parts, and a part that lacks the format gets its ghost roof taxed — so the
+   emulation derate does reach the reader and is listed above. */
 ---
 <Base
   title="A roofline you can drag — Youngmin Cho"

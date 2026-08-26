@@ -1,7 +1,7 @@
 /* Exhaustive invariant sweep over the simulator engine.
    Run: npx tsx scripts/sim-sweep.ts            (summary)
         npx tsx scripts/sim-sweep.ts --json     (machine-readable) */
-import { BATCH_STEPS, CTX_STEPS, GPUS, MODELS, PRECISIONS, SERVING, VIDEO_SHAPES } from '../src/components/sim/data';
+import { BATCH_STEPS, CTX_STEPS, GPUS, LINK, MODELS, PRECISIONS, SERVING, VIDEO_SHAPES } from '../src/components/sim/data';
 import { simulate, type Cfg } from '../src/components/sim/engine';
 
 type Fail = { rule: string; cfg: string; detail: string };
@@ -93,9 +93,9 @@ function check(c: Cfg) {
 
   // --- offload evicts weights first; the model must never stream more than the shortfall
   if (c.offload && s.spill > 0) {
-    const streamed = s.tSsd - 16e-6;
+    const streamed = s.tSsd - LINK.ssdLat;
     if (streamed <= 0) bad('ssd-positive', c, `${s.tSsd}`);
-    const bytesStreamed = streamed * s.nGpu * 14e9;
+    const bytesStreamed = streamed * s.nGpu * LINK.ssdBw;
     if (bytesStreamed > s.spill * (1 + 1e-6) + s.weightBytes) bad('ssd-over-stream', c, `${bytesStreamed} vs spill ${s.spill}`);
   }
 
@@ -167,14 +167,17 @@ for (const m of MODELS.filter((x) => x.kind === 'llm')) {
     fails.push({ rule: 'precision-byte-scaling', cfg: m.id, detail: `${b16.weightBytes}/${b8.weightBytes}/${b4.weightBytes}` });
 }
 
-/* ---------------- reference table ---------------- */
+/* ---------------- reference table ----------------
+   Printed, not asserted: `expect` is what real serving stacks MEASURE for that shape, and the
+   simulator is an upper bound on it, so these columns are meant to differ. scripts/sim-verify.ts
+   is where the relationship between the two is actually checked. */
 const REF: { label: string; cfg: Partial<Cfg>; expect: string }[] = [
-  { label: 'Llama 70B BF16, 1 seq, 4K', cfg: { modelId: 'l70b', precision: 'bf16', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '~40-50 tok/s single-stream on 2xH200' },
-  { label: 'Llama 70B FP8, 1 seq, 4K', cfg: { modelId: 'l70b', precision: 'fp8', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '~45-55 tok/s on 1xH200' },
-  { label: 'Llama 8B BF16, 1 seq, 4K', cfg: { modelId: 'l8b', precision: 'bf16', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '~150-250 tok/s' },
-  { label: 'Llama 405B FP8, 32 seq, 8K', cfg: { modelId: 'l405b', precision: 'fp8', gpuId: 'h200', batch: 32, seq: 8192 }, expect: '~25-35 tok/s per user' },
-  { label: 'DeepSeek-V3 FP8, 64 seq, 4K', cfg: { modelId: 'dsv3', precision: 'fp8', gpuId: 'h200', batch: 64, seq: 4096 }, expect: '~15-25 tok/s per user' },
-  { label: 'Wan2.1 14B BF16 480p/5s', cfg: { modelId: 'wan14b', precision: 'bf16', gpuId: 'h200', batch: 1, videoId: '480p5' }, expect: '~4-10 min on one H100/H200' },
+  { label: 'Llama 70B BF16, 1 seq, 4K', cfg: { modelId: 'l70b', precision: 'bf16', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '2xH200 measures ~40-50 tok/s' },
+  { label: 'Llama 70B FP8, 1 seq, 4K', cfg: { modelId: 'l70b', precision: 'fp8', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '1xH200 measures ~45-55 tok/s' },
+  { label: 'Llama 8B BF16, 1 seq, 4K', cfg: { modelId: 'l8b', precision: 'bf16', gpuId: 'h200', batch: 1, seq: 4096 }, expect: '1xH200 measures ~150-250 tok/s' },
+  { label: 'Llama 405B FP8, 32 seq, 8K', cfg: { modelId: 'l405b', precision: 'fp8', gpuId: 'h200', batch: 32, seq: 8192 }, expect: '8xH200 measures ~25-35 tok/s per user' },
+  { label: 'DeepSeek-V3 FP8, 64 seq, 4K', cfg: { modelId: 'dsv3', precision: 'fp8', gpuId: 'h200', batch: 64, seq: 4096 }, expect: '8xH200 measures ~15-25 tok/s per user' },
+  { label: 'Wan2.1 14B BF16 480p/5s', cfg: { modelId: 'wan14b', precision: 'bf16', gpuId: 'h200', batch: 1, videoId: '480p5' }, expect: 'one H100/H200 measures ~4-10 min' },
   { label: 'Llama 8B FP16, 1 seq, 4K', cfg: { modelId: 'l8b', precision: 'bf16', gpuId: 'v100', batch: 1, seq: 4096 }, expect: 'bound ~45; V100 measures ~25-35' },
   { label: 'Llama 70B BF16, 1 seq, H100', cfg: { modelId: 'l70b', precision: 'bf16', gpuId: 'h100', batch: 1, seq: 4096 }, expect: 'bound ~75; TP=4 H100 measures ~35-45' },
   { label: 'Llama 70B FP8, 32 seq, H100', cfg: { modelId: 'l70b', precision: 'fp8', gpuId: 'h100', batch: 32, seq: 8192 }, expect: 'bound ~46; batched H100 measures ~30-40' },

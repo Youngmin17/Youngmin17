@@ -50,7 +50,9 @@ export const GPUS: Gpu[] = [
     nvlink: 900, perNode: 8, year: 2024, mem: 'HBM3e',
   },
   {
-    id: 'b200', name: 'B200 SXM', short: 'B200', hbm: 192, bw: 8.0,
+    // DGX B200 quotes 1,440 GB and 64 TB/s across its eight SXM modules — 180 GB and 8 TB/s
+    // each. The 192 GB figure that circulates is the package capacity, not what the SKU ships.
+    id: 'b200', name: 'B200 SXM', short: 'B200', hbm: 180, bw: 8.0,
     flops: { bf16: 2250, fp8: 4500, fp4: 9000 },
     nvlink: 1800, perNode: 8, year: 2025, mem: 'HBM3e',
   },
@@ -62,7 +64,9 @@ export const LINK = {
   ibLat: 9e-6,
   nvLat: 3e-6,
   ssdBw: 14e9,       // one PCIe Gen5 x4 NVMe drive, sequential read
-  ssdLat: 16e-6,     // random read — unchanged since 2015
+  // QD1 4K random read on an enterprise Gen5 TLC part. This is NAND array time, not bus time,
+  // which is why it barely moved: sub-10 us was Optane, and Optane is gone.
+  ssdLat: 70e-6,
 };
 
 export type Attn = 'mha' | 'gqa' | 'mla' | 'dit';
@@ -161,18 +165,25 @@ export const SERVING: { id: Serving; label: string; sub: string; blurb: string }
   },
 ];
 
-/* The 2010 table, verbatim. */
+/* The latency numbers every programmer knows, in the form Jonas Bonér has circulated since 2012
+   (gist 2841832, which dates itself "~2012" and credits Jeff Dean, after Peter Norvig). Not Dean's
+   own 2010 slide, which is twelve rows with no SSD in it at all.
+   Left at their ~2012 values on purpose: the ladder exists to show that some of these moved by
+   three orders of magnitude in the years since and others did not move at all, which is only
+   visible if the left-hand column stays where it was. */
 export const CLASSIC: { label: string; ns: number }[] = [
-  { label: 'L1 cache reference', ns: 1 },
-  { label: 'Branch mispredict', ns: 3 },
-  { label: 'L2 cache reference', ns: 4 },
-  { label: 'Mutex lock/unlock', ns: 17 },
+  { label: 'L1 cache reference', ns: 0.5 },
+  { label: 'Branch mispredict', ns: 5 },
+  { label: 'L2 cache reference', ns: 7 },
+  { label: 'Mutex lock/unlock', ns: 25 },
   { label: 'Main memory reference', ns: 100 },
-  { label: 'Compress 1K bytes with Zippy', ns: 2_000 },
-  { label: 'Read 1 MB sequentially from memory', ns: 3_000 },
-  { label: 'SSD random read', ns: 16_000 },
+  { label: 'Compress 1K bytes with Zippy', ns: 3_000 },
+  { label: 'Send 1K bytes over 1 Gbps network', ns: 10_000 },
+  { label: 'Read 4K randomly from SSD', ns: 150_000 },
+  { label: 'Read 1 MB sequentially from memory', ns: 250_000 },
   { label: 'Round trip within same datacenter', ns: 500_000 },
-  { label: 'Read 1 MB sequentially from disk', ns: 825_000 },
-  { label: 'Disk seek', ns: 2_000_000 },
+  { label: 'Read 1 MB sequentially from SSD', ns: 1_000_000 },
+  { label: 'Disk seek', ns: 10_000_000 },
+  { label: 'Read 1 MB sequentially from disk', ns: 20_000_000 },
   { label: 'Send packet CA→Netherlands→CA', ns: 150_000_000 },
 ];
