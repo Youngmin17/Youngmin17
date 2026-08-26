@@ -1,20 +1,107 @@
 /* QA for the deadline tracker: the data, the ICS export, and the rendered page.
    Run: npx tsx scripts/cal-qa.ts [url]   (default http://localhost:4321/Youngmin17/calendar/) */
 import { spawn } from 'node:child_process';
-import { FIELDS, deadlines, instantOf, toIcs, type Venue } from '../src/components/cal/types';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { FIELDS, deadlines, instantOf, resolveDeadline, toIcs, type Venue } from '../src/components/cal/types';
 import { CHECKED, VENUES } from '../src/components/cal/venues';
 
 const URL = process.argv[2] ?? 'http://localhost:4321/Youngmin17/calendar/';
 const PORT = 9355;
-const PROFILE = '/private/tmp/claude-501/-Users-mincho-youngmin-git/8b6a1532-e09a-4d58-9241-bba1567f47e4/scratchpad/calqa-profile';
+const PROFILE = join(tmpdir(), 'calqa-profile');
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Fail = { where: string; rule: string; detail: string };
 const fails: Fail[] = [];
 const bad = (where: string, rule: string, detail: string) => fails.push({ where, rule, detail });
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+/* Research notes get pasted in truncated. A field ending mid-clause reaches the card as one. */
+const CHOPPED = /(…|\.\.\.|[;,(–-])\s*$/;
 const real = (d: string) => ISO.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
   && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+
+/* ---------- 0. deadline resolution ----------
+   These instants were worked out by hand from the wording each call uses and the definition of
+   the zone it names — AoE is UTC-12, PST is UTC-8, EST is UTC-5 — not by running the module. A
+   test that asks instantOf() to agree with instantOf() passes whatever the function does. */
+const CASES: [string, string, string, string][] = [
+  ['2026-09-09', 'AoE', '2026-09-10T11:59:00Z', 'a bare AoE deadline is 23:59 twelve hours behind UTC'],
+  ['2026-10-08', 'AoE (11:59 pm, UTC-12)', '2026-10-09T11:59:00Z', '11:59 pm is 23:59, not 11:59'],
+  ['2026-09-10', 'AoE (UTC-12h), 23:59:59', '2026-09-11T11:59:00Z', 'trailing seconds do not shift the hour'],
+  ['2026-10-30', '12:00 PM PDT', '2026-10-30T19:00:00Z', 'noon PDT is 19:00 UTC — same calendar day'],
+  ['2026-11-17', 'PST (5:00 PM)', '2026-11-18T01:00:00Z', '5 PM PST rolls into the next UTC day'],
+  ['2026-12-08', '5:59 pm EST (10:59 pm UTC)', '2026-12-08T22:59:00Z', 'the call states its own UTC equivalent'],
+  ['2027-07-16', 'AoE (5:00 PM)', '2027-07-17T05:00:00Z', 'AoE but not 23:59'],
+  ['2027-04-07', 'EDT', '2027-04-08T03:59:00Z', 'EDT is UTC-4 and an unstated hour falls back to 23:59'],
+  ['2027-06-10', 'not stated', '2027-06-11T11:59:00Z', 'unrecognised wording falls back to 23:59 AoE'],
+];
+for (const [date, tz, want, why] of CASES) {
+  const got = new Date(instantOf(date, tz)).toISOString().replace('.000', '');
+  if (got !== want) bad('resolve', 'wrong-instant', `${date} "${tz}" -> ${got}, want ${want} (${why})`);
+}
+if (resolveDeadline('2027-06-10', 'not stated').namedZone) bad('resolve', 'unknown-zone-not-flagged', 'not stated');
+if (!resolveDeadline('2026-11-17', 'PST (5:00 PM)').namedZone) bad('resolve', 'known-zone-flagged-unknown', 'PST');
+if (resolveDeadline('2026-09-09', 'AoE').namedTime) bad('resolve', 'assumed-time-not-flagged', 'AoE');
+
+/* Every deadline in the dataset, pinned. Read off the call wording once, by hand, and locked here
+   so that a change to the parser or to a venue's wording has to be looked at rather than absorbed. */
+const GOLDEN: [string, string][] = [
+  ['asplos-0-p', '2026-09-10T11:59:00Z'],
+  ['cgo-0-p', '2026-09-11T11:59:00Z'],
+  ['fast-0-p', '2026-09-16T11:59:00Z'],
+  ['date-0-a', '2026-09-14T11:59:00Z'],
+  ['date-0-p', '2026-09-21T11:59:00Z'],
+  ['eurosys-0-a', '2026-09-18T11:59:00Z'],
+  ['eurosys-0-p', '2026-09-25T11:59:00Z'],
+  ['iclr-0-a', '2026-09-19T11:59:00Z'],
+  ['iclr-0-p', '2026-09-26T11:59:00Z'],
+  ['fpga-0-a', '2026-10-02T11:59:00Z'],
+  ['fpga-0-p', '2026-10-09T11:59:00Z'],
+  ['acl-0-p', '2026-10-13T11:59:00Z'],
+  ['acl-1-p', '2027-01-05T11:59:00Z'],
+  ['naacl-0-p', '2026-10-13T11:59:00Z'],
+  ['mlsys-0-p', '2026-10-30T19:00:00Z'],
+  ['isca-0-a', '2026-11-10T11:59:00Z'],
+  ['isca-0-p', '2026-11-17T11:59:00Z'],
+  ['isca-1-a', '2026-12-05T11:59:00Z'],
+  ['isca-1-p', '2026-12-12T11:59:00Z'],
+  ['dac-0-a', '2026-11-11T01:00:00Z'],
+  ['dac-0-p', '2026-11-18T01:00:00Z'],
+  ['osdi-0-a', '2026-12-01T22:59:00Z'],
+  ['osdi-0-p', '2026-12-08T22:59:00Z'],
+  ['icml-0-a', '2027-01-23T11:59:00Z'],
+  ['icml-0-p', '2027-01-29T11:59:00Z'],
+  ['sosp-0-a', '2027-03-26T11:59:00Z'],
+  ['sosp-0-p', '2027-04-02T11:59:00Z'],
+  ['micro-0-a', '2027-04-01T03:59:00Z'],
+  ['micro-0-p', '2027-04-08T03:59:00Z'],
+  ['iccad-0-a', '2027-04-07T11:59:00Z'],
+  ['iccad-0-p', '2027-04-14T11:59:00Z'],
+  ['sc-0-a', '2027-04-08T11:59:00Z'],
+  ['sc-0-p', '2027-04-15T11:59:00Z'],
+  ['pact-0-a', '2027-04-17T11:59:00Z'],
+  ['pact-0-p', '2027-04-24T11:59:00Z'],
+  ['neurips-0-a', '2027-05-04T11:59:00Z'],
+  ['neurips-0-p', '2027-05-08T11:59:00Z'],
+  ['emnlp-0-p', '2027-05-25T11:59:00Z'],
+  ['atc-0-p', '2027-06-11T11:59:00Z'],
+  ['aspdac-0-a', '2027-07-10T05:00:00Z'],
+  ['aspdac-0-p', '2027-07-17T05:00:00Z'],
+  ['aaai-0-a', '2027-07-21T11:59:00Z'],
+  ['aaai-0-p', '2027-07-28T11:59:00Z'],
+  ['hpca-0-a', '2027-07-24T11:59:00Z'],
+  ['hpca-0-p', '2027-07-31T11:59:00Z'],
+  ['ppopp-0-p', '2027-08-03T11:59:00Z'],
+];
+{
+  const got = new Map(deadlines(VENUES as Venue[]).map((d) => [d.key, new Date(d.at).toISOString().replace('.000', '')]));
+  const want = new Map(GOLDEN);
+  for (const [key, iso] of want) {
+    if (!got.has(key)) bad('resolve', 'golden-deadline-missing', key);
+    else if (got.get(key) !== iso) bad('resolve', 'golden-instant-changed', `${key}: ${got.get(key)}, was ${iso}`);
+  }
+  for (const key of got.keys()) if (!want.has(key)) bad('resolve', 'golden-deadline-unlisted', key);
+}
 
 /* ---------- 1. data ---------- */
 const EXPECTED = ['isca', 'hpca', 'asplos', 'mlsys', 'neurips', 'dac', 'iccad', 'osdi', 'icml', 'iclr',
@@ -35,7 +122,11 @@ for (const v of VENUES as Venue[]) {
   if (!v.rounds.length) bad(at, 'no-rounds', '');
   if (v.status === 'projected' && !v.basis) bad(at, 'projected-without-basis', '');
   if (v.status === 'confirmed' && !v.source) bad(at, 'confirmed-without-source', '');
-  if (v.site && !/^https?:\/\//.test(v.site)) bad(at, 'site-not-url', v.site);
+  if (v.site && !/^https?:\/\/\S+$/.test(v.site)) bad(at, 'site-not-url', v.site);
+  for (const [k, txt] of Object.entries({ name: v.name, fullName: v.fullName, edition: v.edition,
+    location: v.location, basis: v.basis, notes: v.notes })) {
+    if (typeof txt === 'string' && CHOPPED.test(txt.trim())) bad(at, 'text-truncated', `${k}: …${txt.trim().slice(-44)}`);
+  }
   if (v.source && !/^https?:\/\//.test(v.source)) bad(at, 'source-not-url', v.source);
   for (const d of [v.confStart, v.confEnd]) if (d && !real(d)) bad(at, 'conf-date-invalid', String(d));
   if (v.confStart && v.confEnd && v.confEnd < v.confStart) bad(at, 'conf-end-before-start', `${v.confStart}..${v.confEnd}`);
@@ -56,13 +147,22 @@ for (const v of VENUES as Venue[]) {
       else if (v.confStart && r.notification > v.confStart) bad(at, 'notification-after-conference', `${r.notification} > ${v.confStart}`);
     }
     if (v.confStart && r.paper > v.confStart) bad(at, 'paper-after-conference', `${r.paper} > ${v.confStart}`);
+    if (r.timezone && CHOPPED.test(r.timezone.trim())) bad(at, 'text-truncated', `timezone: ${r.timezone}`);
+    /* A call whose zone we cannot read is silently rounded to 23:59 AoE, so it has to say so. */
+    const zr = resolveDeadline(r.paper, r.timezone);
+    if (!zr.namedZone && !/not stated|unknown|no zone/i.test(r.timezone ?? '')) {
+      bad(at, 'timezone-unreadable', `"${r.timezone}" names no zone this page knows`);
+    }
+    if (r.abstract && instantOf(r.abstract, r.timezone) > instantOf(r.paper, r.timezone)) {
+      bad(at, 'abstract-instant-after-paper', `${r.abstract} vs ${r.paper}`);
+    }
     if (prev && r.paper < prev) bad(at, 'rounds-out-of-order', `${prev} then ${r.paper}`);
     prev = r.paper;
   }
 }
 
 const all = deadlines(VENUES as Venue[]);
-for (let i = 1; i < all.length; i++) if (all[i].date < all[i - 1].date) bad('data', 'sort-broken', `${all[i - 1].date} then ${all[i].date}`);
+for (let i = 1; i < all.length; i++) if (all[i].at < all[i - 1].at) bad('data', 'sort-broken', `${all[i - 1].key} then ${all[i].key}`);
 if (new Set(all.map((d) => d.key)).size !== all.length) bad('data', 'deadline-key-duplicate', '');
 
 /* ---------- 2. ICS ---------- */
@@ -84,15 +184,36 @@ for (const l of lines) {
 }
 const starts = lines.filter((l) => l.startsWith('DTSTART'));
 if (starts.length !== all.length) bad('ics', 'dtstart-count', String(starts.length));
-for (const l of starts) if (!/^DTSTART;VALUE=DATE:\d{8}$/.test(l)) bad('ics', 'dtstart-format', l);
-for (const l of lines.filter((x) => x.startsWith('DTEND'))) if (!/^DTEND;VALUE=DATE:\d{8}$/.test(l)) bad('ics', 'dtend-format', l);
+for (const l of starts) if (!/^DTSTART:\d{8}T\d{6}Z$/.test(l)) bad('ics', 'dtstart-format', l);
+for (const l of lines.filter((x) => x.startsWith('DTEND'))) if (!/^DTEND:\d{8}T\d{6}Z$/.test(l)) bad('ics', 'dtend-format', l);
+/* The block has to end ON the deadline, with the alarms measured back from that end — an all-day
+   event would fire a Tokyo reader's one-day warning most of a day early on a 23:59 AoE call. */
+{
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const ends = lines.filter((l) => l.startsWith('DTEND:'));
+  for (const [i, d] of all.entries()) {
+    if (ends[i] !== `DTEND:${stamp(d.at)}`) bad('ics', 'dtend-not-deadline', `${d.key}: ${ends[i]}`);
+    if (starts[i] !== `DTSTART:${stamp(d.at - 3_600_000)}`) bad('ics', 'dtstart-not-hour-before', `${d.key}: ${starts[i]}`);
+  }
+  const rel = lines.filter((l) => l.startsWith('TRIGGER'));
+  for (const l of rel) if (!/^TRIGGER;RELATED=END:-P[17]D$/.test(l)) bad('ics', 'alarm-not-from-end', l);
+  if (rel.length !== all.length * 2) bad('ics', 'alarm-count', `${rel.length}`);
+}
 if (new Set(lines.filter((l) => l.startsWith('UID:'))).size !== all.length) bad('ics', 'uid-not-unique', '');
 const unfolded = ics.replace(/\r\n /g, '');
 for (const d of all) if (!unfolded.includes(d.venue.name)) bad('ics', 'summary-missing-venue', d.venue.name);
 
 /* ---------- 3. rendered page ---------- */
-const rounds = (VENUES as Venue[]).flatMap((v) => v.rounds.map((r) => ({ v, r })));
-rounds.sort((a, b) => instantOf(a.r.paper, a.r.timezone) - instantOf(b.r.paper, b.r.timezone));
+/* Cards are ordered by the deadline each is counting down to, not by the paper deadline: FAST's
+   paper lands before DATE's, but DATE's abstract lands before FAST's paper. Both clocks read "now"
+   a second or two apart, which only matters for a deadline that falls inside that window. */
+const QA_NOW = Date.now();
+const rounds = (VENUES as Venue[]).flatMap((v) => v.rounds.map((r, i) => {
+  const due = instantOf(r.paper, r.timezone);
+  const abs = r.abstract ? instantOf(r.abstract, r.timezone) : undefined;
+  return { v, r, i, due, target: abs != null && abs >= QA_NOW ? abs : due };
+}));
+rounds.sort((a, b) => a.target - b.target || a.due - b.due);
 
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${PORT}`,
@@ -197,19 +318,30 @@ if (!aoe.upcoming[0].sub.includes('AoE')) bad('ui', 'timezone-label', aoe.upcomi
 if (!utc.upcoming[0].sub.includes('UTC')) bad('ui', 'timezone-label', utc.upcoming[0].sub);
 if (!loc.upcoming[0].sub.includes('Local')) bad('ui', 'timezone-label', loc.upcoming[0].sub);
 {
-  // Expectations derived from the raw CFP string and the DEFINITION of AoE (UTC-12), not from the
-  // module under test — comparing against instantOf() would shift with any bug in it and pass.
-  const first = rounds[0];
+  // Expectations built from the GOLDEN instant above — hand-checked against each call's wording —
+  // rather than from instantOf(), which would shift with any bug in it and still pass.
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const p2 = (n: number) => String(n).padStart(2, '0');
-  const [Y, M, D] = first.r.paper.split('-').map(Number);
-  // a call quoting "D, 23:59 AoE" must render verbatim when the page is showing AoE
-  const wantAoe = `${MO[M - 1]} ${p2(D)}, ${Y} 23:59 AoE`;
-  if (aoe.upcoming[0].sub !== wantAoe) bad('ui', 'aoe-text', `dom="${aoe.upcoming[0].sub}" want="${wantAoe}"`);
-  // and 23:59 AoE is 11:59 UTC the following day, because AoE is twelve hours behind UTC
-  const u = new Date(Date.UTC(Y, M - 1, D, 23 + 12, 59));
-  const wantUtc = `${MO[u.getUTCMonth()]} ${p2(u.getUTCDate())}, ${u.getUTCFullYear()} ${p2(u.getUTCHours())}:${p2(u.getUTCMinutes())} UTC`;
-  if (utc.upcoming[0].sub !== wantUtc) bad('ui', 'utc-text', `dom="${utc.upcoming[0].sub}" want="${wantUtc}"`);
+  const at = new Map(GOLDEN).get(`${rounds[0].v.id}-${rounds[0].i}-p`);
+  if (!at) bad('ui', 'golden-missing-for-first-card', `${rounds[0].v.id}`);
+  else {
+    const u = new Date(at);                                  // the deadline as a real instant
+    const a = new Date(u.getTime() - 12 * 60 * 60_000);       // the same instant read in AoE (UTC-12)
+    const show = (d: Date, z: string) =>
+      `${MO[d.getUTCMonth()]} ${p2(d.getUTCDate())}, ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} ${z}`;
+    if (aoe.upcoming[0].sub !== show(a, 'AoE')) bad('ui', 'aoe-text', `dom="${aoe.upcoming[0].sub}" want="${show(a, 'AoE')}"`);
+    if (utc.upcoming[0].sub !== show(u, 'UTC')) bad('ui', 'utc-text', `dom="${utc.upcoming[0].sub}" want="${show(u, 'UTC')}"`);
+  }
+  // the six calls that are not a plain 23:59 AoE deadline must say so on the card rather than be
+  // quietly restated; the rest must not carry the note
+  const odd = new Set(rounds.filter((x) => {
+    const R = resolveDeadline(x.r.paper, x.r.timezone);
+    return !(R.namedZone && R.offsetMin === -720 && R.h === 23 && R.m === 59);
+  }).map((x) => x.v.name));
+  const noted: string[] = await evalIn(`[...document.querySelectorAll('.ddl-upcoming .ddl-card')]
+    .filter(c => c.querySelector('.ddl-asis')).map(c => c.querySelector('.ddl-conf').textContent.trim())`);
+  for (const n of odd) if (!noted.includes(n)) bad('ui', 'wording-note-missing', n);
+  for (const n of noted) if (!odd.has(n)) bad('ui', 'wording-note-spurious', n);
 }
 await evalIn(`(async()=>{ __c.press('AoE'); await __c.f() })()`);
 

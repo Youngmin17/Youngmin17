@@ -46,6 +46,8 @@
   border:1px solid color-mix(in srgb, var(--c) 24%, #fff); border-radius:5px; padding:2px 7px}
 .ddl-inferred{font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
   border:1px dashed var(--line-2); border-radius:5px; padding:2px 7px; color:var(--faint)}
+.ddl-stage{font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
+  font-weight:600; border:1px solid var(--line-2); border-radius:5px; padding:2px 7px; color:var(--ink-2)}
 .ddl-countdown{display:flex; align-items:baseline; gap:4px; white-space:nowrap}
 .ddl-num{font-family:var(--mono); font-size:21px; font-weight:600; letter-spacing:-.03em; color:var(--ink); line-height:1}
 .ddl-unit{font-size:11px; color:var(--muted); margin-right:5px}
@@ -71,6 +73,9 @@
 .ddl-row time,.ddl-where{color:var(--ink-2); font-size:12.5px}
 .ddl-primary time{font-weight:650; color:var(--ink); font-size:13px}
 .ddl-zone{font-family:var(--mono); font-size:10px; color:var(--faint); margin-left:3px}
+.ddl-asis{margin:6px 0 0; padding-left:96px; font-size:11px; color:var(--muted); line-height:1.45}
+.ddl-asis b{font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--faint); font-weight:400}
 .ddl-basis{margin:11px 0 0; padding-top:10px; border-top:1px solid var(--line);
   font-size:11.5px; color:var(--muted); line-height:1.5}
 .ddl-basis b{color:var(--ink-2); font-weight:600}

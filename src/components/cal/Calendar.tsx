@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  FIELDS, ZONE_LABEL, fieldOf, formatIn, instantOf, toIcs,
+  FIELDS, ZONE_LABEL, fieldOf, formatIn, instantOf, isPlainAoe, resolveDeadline, toIcs,
   type Deadline, type Field, type Venue, type Zone,
 } from './types';
 import { CHECKED, VENUES } from './venues';
@@ -31,23 +31,36 @@ interface Card {
   round: Venue['rounds'][number];
   due: number;          // the instant that matters — the paper deadline
   abstractAt?: number;
+  asWritten?: string;   // set only when the call is not a plain 23:59 AoE deadline
 }
 
 function cards(venues: Venue[]): Card[] {
   const out: Card[] = [];
   for (const v of venues) {
     for (const [i, r] of v.rounds.entries()) {
+      const resolved = resolveDeadline(r.paper, r.timezone);
       out.push({
         id: `${v.id}-${i}`,
         venue: v,
         round: r,
-        due: instantOf(r.paper, r.timezone),
+        due: resolved.at,
         abstractAt: r.abstract ? instantOf(r.abstract, r.timezone) : undefined,
+        asWritten: isPlainAoe(resolved) ? undefined
+          : !resolved.namedZone ? `${r.timezone || 'no zone given'} — read as 23:59 AoE`
+          : resolved.namedTime ? r.timezone
+          : `${r.timezone} — hour not stated, read as 23:59`,
       });
     }
   }
   return out.sort((a, b) => a.due - b.due);
 }
+
+/* The deadline a card is actually counting down to: the abstract while one is still ahead, since
+   abstract registration is mandatory at most of these venues and missing it forfeits the cycle.
+   The list has to be ordered by this and not by the paper deadline, or a card reading 21 days sits
+   above one reading 19. */
+const targetOf = (c: Card, at: number | null) =>
+  at != null && c.abstractAt != null && c.abstractAt >= at ? c.abstractAt : c.due;
 
 /* Ticks every minute so the hours field is honest rather than decorative. */
 function useNow() {
@@ -68,14 +81,16 @@ export default function Calendar() {
   const all = useMemo(() => cards(VENUES as Venue[]), []);
   const shown = useMemo(() => (on ? all.filter((c) => on.has(c.venue.field)) : all), [all, on]);
 
-  const upcoming = now == null ? shown : shown.filter((c) => c.due >= now);
+  const upcoming = (now == null ? shown : shown.filter((c) => c.due >= now))
+    .slice().sort((a, b) => targetOf(a, now) - targetOf(b, now) || a.due - b.due);
   const past = now == null ? [] : shown.filter((c) => c.due < now);
 
   const download = () => {
     const list: Deadline[] = [];
     for (const c of shown) {
-      if (c.round.abstract) list.push({ venue: c.venue, round: c.round, kind: 'abstract', date: c.round.abstract, key: `${c.id}-a` });
-      list.push({ venue: c.venue, round: c.round, kind: 'paper', date: c.round.paper, key: `${c.id}-p` });
+      if (c.round.abstract && c.abstractAt != null)
+        list.push({ venue: c.venue, round: c.round, kind: 'abstract', date: c.round.abstract, at: c.abstractAt, key: `${c.id}-a` });
+      list.push({ venue: c.venue, round: c.round, kind: 'paper', date: c.round.paper, at: c.due, key: `${c.id}-p` });
     }
     const n = new Date();
     const p = (x: number) => String(x).padStart(2, '0');
@@ -141,7 +156,8 @@ export default function Calendar() {
         Checked against official calls for papers on {dayYear(CHECKED)}. Entries marked{' '}
         <span className="ddl-inferred">estimated</span> had no published call at that point — their
         dates come from the editions named on the card and should be confirmed before you plan around
-        one. Deadlines are 23:59 in the zone shown; countdowns run in your browser.
+        one. Each deadline is resolved from the wording its own call uses &mdash; most say 23:59 AoE,
+        some do not &mdash; and then restated in the zone you pick. Countdowns run in your browser.
       </p>
     </div>
   );
@@ -160,7 +176,9 @@ function Section({ title, count, kind, children }: {
 
 function Card({ c, now, zone }: { c: Card; now: number | null; zone: Zone }) {
   const f = fieldOf(c.venue.field);
-  const left = now == null ? null : c.due - now;
+  const target = targetOf(c, now);
+  const onAbstract = target !== c.due;
+  const left = now == null ? null : target - now;
   const overdue = left != null && left < 0;
   const days = left == null ? null : Math.floor(Math.abs(left) / (24 * HOUR));
   const hrs = left == null ? null : Math.floor((Math.abs(left) % (24 * HOUR)) / HOUR);
@@ -173,6 +191,7 @@ function Card({ c, now, zone }: { c: Card; now: number | null; zone: Zone }) {
         <div className="ddl-badges">
           <span className="ddl-tag">{f.label}</span>
           {c.venue.status === 'projected' && <span className="ddl-inferred">estimated</span>}
+          {onAbstract && <span className="ddl-stage">to abstract</span>}
         </div>
         <div className="ddl-countdown">
           {days == null ? <span className="ddl-num">—</span> : (
@@ -207,13 +226,18 @@ function Card({ c, now, zone }: { c: Card; now: number | null; zone: Zone }) {
         {c.abstractAt != null && (
           <div className="ddl-row">
             <span className="ddl-label">Abstract</span>
-            <time dateTime={c.round.abstract}>{formatIn(c.abstractAt, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
+            <time dateTime={new Date(c.abstractAt).toISOString()}>{formatIn(c.abstractAt, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
           </div>
         )}
         <div className="ddl-row ddl-primary">
           <span className="ddl-label">Submission</span>
-          <time dateTime={c.round.paper}>{formatIn(c.due, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
+          <time dateTime={new Date(c.due).toISOString()}>{formatIn(c.due, zone)} <span className="ddl-zone">{ZONE_LABEL[zone]}</span></time>
         </div>
+        {c.asWritten && (
+          <p className="ddl-asis">
+            <b>Call states</b> {c.asWritten}
+          </p>
+        )}
         {c.round.notification && (
           <div className="ddl-row">
             <span className="ddl-label">Notification</span>
