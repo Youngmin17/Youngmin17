@@ -16,6 +16,12 @@ quantization and GPU kernels up to custom NPU hardware.
 - **Edge AI** — on-device speech / kiosk demos.
 
 ### Featured
+- 🧮 [open_ommx_serve](https://github.com/Youngmin17/open_ommx_serve)
+  — ICCAD 2026 artifact: OMMX accuracy harness + decode kernels served through
+  vLLM and HF-eager, with the baselines and reproduction scripts (Apache-2.0).
+- ⚙️ [open_nucleus](https://github.com/Youngmin17/open_nucleus)
+  — RTL of the Nucleus NPU: 32 cores that execute OMMX bundles directly, with a
+  constant-latency outlier decoder and mixed-precision MAC lanes (Apache-2.0).
 - 🧪 [Youngmin Systems Lab](https://youngmin17.github.io/Youngmin17/)
   — technical blog on efficient LLM inference, OMMX, and Nucleus NPU work.
 - 🎙️ [ai-voice-kiosk-edge-demo](https://github.com/Youngmin17/ai-voice-kiosk-edge-demo)
@@ -26,4 +32,5 @@ quantization and GPU kernels up to custom NPU hardware.
 `HuggingFace` · `lm-eval`
 
 ---
-<sub>Some research repositories are private while in progress.</sub>
+<sub>Released code is Apache-2.0; the remaining research repositories stay private
+while in progress.</sub>

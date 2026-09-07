@@ -50,7 +50,7 @@ const researchAreas = [
         <div class="contact-grid">
           <a class="contact-chip" href="mailto:galateia2331@gmail.com"><span>Email</span><span>open</span></a>
           <span class="contact-chip disabled"><span>LinkedIn</span><span>TBD</span></span>
-          <span class="contact-chip disabled"><span>GitHub</span><span>TBD</span></span>
+          <a class="contact-chip" href="https://github.com/Youngmin17"><span>GitHub</span><span>@Youngmin17</span></a>
         </div>
       </aside>
     </section>
@@ -82,35 +82,38 @@ const researchAreas = [
         <div>
           <p class="eyebrow">Projects</p>
           <h2>Projects</h2>
-          <p class="side-note">Open-source AI systems projects in preparation.</p>
+          <p class="side-note">Released on GitHub under Apache-2.0.</p>
         </div>
         <div class="entry-list">
           <article class="entry">
             <h3>Nucleus</h3>
             <p class="where">Samsung 5nm &middot; full-stack open-source NPU</p>
             <p>
-              A full-stack open-source NPU &mdash; RTL, compiler toolchain, and runtime in one
-              repository. It executes Hugging Face Transformers models directly, across a range
-              of mixed-precision paths. Physical implementation is complete on a Samsung 5nm
-              PDK, the design has been brought up on a Cadence Protium prototyping system, and
-              a single-core version has been fabricated and verified through a UMC 40nm MPW.
+              A full-stack open-source NPU &mdash; RTL, compiler toolchain, and runtime. It executes
+              Hugging Face Transformers models directly, across a range of mixed-precision paths.
+              Physical implementation is complete on a Samsung 5nm PDK, the design has been
+              brought up on a Cadence Protium prototyping system, and a single-core version has
+              been fabricated and verified through a UMC 40nm MPW.
             </p>
             <div class="link-list">
-              <a class="locked" href="https://github.com/Youngmin17/open_nucleus">Code<span>private</span></a>
+              <a href="https://github.com/Youngmin17/open_nucleus">Code<span class="tag">Apache-2.0</span></a>
             </div>
-            <p class="status-line">Public release coming soon.</p>
+            <p class="status-line">Public: RTL. Compiler toolchain and UVM verification to follow.</p>
           </article>
           <article class="entry">
             <h3>OMMX</h3>
             <p class="where">Outlier Managed MX format and GPU kernels</p>
             <p>
               The outlier-managed MX format and GPU kernel stack proposed at ICCAD
-              2026 for efficient low-bit LLM inference.
+              2026 for efficient low-bit LLM inference. The repository is the GPU half of the
+              paper artifact: the accuracy harness, the decode kernels served through vLLM and
+              HF-eager, the quantization baselines they are measured against, and the scripts
+              that reproduce the decode-latency figures on A100 and H200.
             </p>
             <div class="link-list">
-              <a class="locked" href="https://github.com/Youngmin17/open_ommx_serve">Code<span>private</span></a>
+              <a href="https://github.com/Youngmin17/open_ommx_serve">Code<span class="tag">Apache-2.0</span></a>
             </div>
-            <p class="status-line">Public release coming soon.</p>
+            <p class="status-line">Public: ICCAD 2026 artifact.</p>
           </article>
         </div>
       </div>
